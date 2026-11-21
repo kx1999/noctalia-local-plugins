@@ -1,0 +1,36 @@
+{
+  "osd": {
+    "width": "Width",
+    "height": "Height"
+  },
+  "settings": {
+    "show_pixels": {
+      "label": "Show pixel size on tiled windows",
+      "description": "Append the tiled window's new size in pixels to the percentage (floating windows always show pixels)"
+    },
+    "include_floating": {
+      "label": "Include floating windows",
+      "description": "Also show the popup (in pixels) when a floating window is resized"
+    },
+    "gap": {
+      "label": "Layout gap",
+      "description": "Umbriel layout.gap in pixels, used to turn window sizes into extent fractions"
+    },
+    "border_width": {
+      "label": "Border width",
+      "description": "Umbriel appearance.border_width in pixels"
+    },
+    "title_bar_height": {
+      "label": "Title bar height",
+      "description": "Umbriel appearance.title_bar.height in pixels"
+    },
+    "min_change_px": {
+      "label": "Minimum change",
+      "description": "Ignore size changes smaller than this many pixels"
+    },
+    "combine_window_ms": {
+      "label": "Combine axes window (ms)",
+      "description": "When width and height both change within this many milliseconds (e.g. a corner drag), keep showing both instead of flickering between them. 0 disables"
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "osd": {
+    "muted": "{player} muted",
+    "volume": "{player} {percent}%",
+    "not_found": "{player} not running",
+    "no_volume": "{player} has no volume control"
+  },
+  "settings": {
+    "player": {
+      "label": "Player",
+      "description": "playerctl player name, e.g. spotify, ytmdesktop, mpv, firefox. Instances match too (firefox matches firefox.instance_1_123). A comma-separated list picks the first one running. Run `playerctl -l` to see names"
+    },
+    "step": {
+      "label": "Step (%)",
+      "description": "How much up / down change the volume when no step is given in the command"
+    },
+    "max_volume": {
+      "label": "Maximum volume (%)",
+      "description": "Upper limit for up and set. MPRIS allows going above 100% on some players"
+    },
+    "show_osd": {
+      "label": "Show OSD",
+      "description": "Show Noctalia's OSD popup with the player's new volume after each command"
+    }
+  }
+}

@@ -1,0 +1,83 @@
+# Extent OSD - pop a Noctalia OSD whenever the focused Umbriel window's primary
+# or secondary extent changes (window-cycle-*/modify-*/set-*-extent actions,
+# keyboard resizes, or interactive mouse resizes).
+#
+# Umbriel does not publish extent fractions, so the service derives them from
+# window geometry the same way Umbriel lays windows out:
+#   fraction = (outer_px + gap) / (viewport_px + gap),  viewport = usable - 2*gap
+# which is why the gap / border / title bar sizes below should match your
+# Umbriel config.
+
+id = "kylex/extent-osd"
+name = "Extent OSD"
+version = "1.4.0"
+plugin_api = 43
+author = "kylex"
+license = "MIT"
+dependencies = ["umbriel"]
+tags = ["umbriel", "service", "utility"]
+icon = "arrows-horizontal"
+description = "Show a width/height OSD popup when the focused Umbriel window's primary or secondary extent changes."
+
+[[setting]]
+key = "show_pixels"
+type = "bool"
+label_key = "settings.show_pixels.label"
+description_key = "settings.show_pixels.description"
+default = false
+
+[[setting]]
+key = "include_floating"
+type = "bool"
+label_key = "settings.include_floating.label"
+description_key = "settings.include_floating.description"
+default = true
+
+[[setting]]
+key = "gap"
+type = "int"
+label_key = "settings.gap.label"
+description_key = "settings.gap.description"
+default = 8
+min = 0
+max = 500
+
+[[setting]]
+key = "border_width"
+type = "int"
+label_key = "settings.border_width.label"
+description_key = "settings.border_width.description"
+default = 2
+min = 0
+max = 100
+
+[[setting]]
+key = "title_bar_height"
+type = "int"
+label_key = "settings.title_bar_height.label"
+description_key = "settings.title_bar_height.description"
+default = 28
+min = 0
+max = 128
+
+[[setting]]
+key = "min_change_px"
+type = "int"
+label_key = "settings.min_change_px.label"
+description_key = "settings.min_change_px.description"
+default = 2
+min = 1
+max = 200
+
+[[setting]]
+key = "combine_window_ms"
+type = "int"
+label_key = "settings.combine_window_ms.label"
+description_key = "settings.combine_window_ms.description"
+default = 300
+min = 0
+max = 2000
+
+[[service]]
+id = "service"
+entry = "service.luau"

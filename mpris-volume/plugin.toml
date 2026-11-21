@@ -1,0 +1,49 @@
+# MPRIS Volume - control the volume of one specific MPRIS player (its own
+# app-level volume, not the system mixer) through `noctalia msg plugin`, and
+# show the result on Noctalia's OSD. Uses playerctl under the hood.
+
+id = "kylex/mpris-volume"
+name = "MPRIS Volume"
+version = "1.0.0"
+plugin_api = 43
+author = "kylex"
+license = "MIT"
+tags = ["audio", "media", "service", "utility"]
+icon = "volume"
+description = "Raise, lower, set, or mute the volume of a chosen MPRIS player from shell commands, with an OSD popup."
+
+[[setting]]
+key = "player"
+type = "string"
+label_key = "settings.player.label"
+description_key = "settings.player.description"
+default = "ytmdesktop"
+
+[[setting]]
+key = "step"
+type = "int"
+label_key = "settings.step.label"
+description_key = "settings.step.description"
+default = 5
+min = 1
+max = 50
+
+[[setting]]
+key = "max_volume"
+type = "int"
+label_key = "settings.max_volume.label"
+description_key = "settings.max_volume.description"
+default = 100
+min = 1
+max = 200
+
+[[setting]]
+key = "show_osd"
+type = "bool"
+label_key = "settings.show_osd.label"
+description_key = "settings.show_osd.description"
+default = true
+
+[[service]]
+id = "service"
+entry = "service.luau"

@@ -11,6 +11,9 @@
 --   noctalia msg plugin kylex/mpris-volume:service all play|pause|toggle|next|previous|stop [player=NAME]
 --   noctalia msg plugin kylex/mpris-volume:service all seek <seconds, negative = back> [player=NAME]
 --
+-- `previous` rewinds to the start of the track when more than
+-- restart_threshold seconds in, and only skips back when near the start.
+--
 -- Payload tokens are whitespace separated and order-free: a bare number is the
 -- step / target percent / seconds, `player=NAME` overrides the configured player.
 --
@@ -138,7 +141,19 @@ function onIpc(event, payload)
     return
   end
 
-  if MEDIA_COMMANDS[event] ~= nil then
+  if event == "previous" or event == "prev" then
+    -- Like most players' back button: past restart_threshold seconds into the
+    -- track, rewind to its start; near the start, go to the previous track.
+    local threshold = configInt("restart_threshold", 3)
+    playerctl(spec, { "position" }, event, function(out)
+      local position = tonumber(out)
+      if position ~= nil and threshold > 0 and position > threshold then
+        playerctl(spec, { "position", "0" }, event)
+      else
+        playerctl(spec, { "previous" }, event)
+      end
+    end)
+  elseif MEDIA_COMMANDS[event] ~= nil then
     playerctl(spec, { MEDIA_COMMANDS[event] }, event)
   elseif event == "seek" then
     if args.value == nil or args.value == 0 then

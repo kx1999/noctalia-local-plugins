@@ -5,7 +5,7 @@
 
 id = "kylex/mpris-volume"
 name = "MPRIS Volume"
-version = "1.2.0"
+version = "1.3.0"
 plugin_api = 43
 author = "kylex"
 license = "MIT"
@@ -37,6 +37,15 @@ description_key = "settings.max_volume.description"
 default = 100
 min = 1
 max = 200
+
+[[setting]]
+key = "restart_threshold"
+type = "int"
+label_key = "settings.restart_threshold.label"
+description_key = "settings.restart_threshold.description"
+default = 3
+min = 0
+max = 60
 
 [[service]]
 id = "service"

@@ -32,7 +32,7 @@ noctalia msg plugin $P all toggle        # play/pause (alias: play-pause)
 noctalia msg plugin $P all play
 noctalia msg plugin $P all pause
 noctalia msg plugin $P all next
-noctalia msg plugin $P all previous      # alias: prev
+noctalia msg plugin $P all previous      # alias: prev; rewinds to 0:00 if >3 s in
 noctalia msg plugin $P all stop
 noctalia msg plugin $P all seek 10       # forward 10 s
 noctalia msg plugin $P all seek -10      # back 10 s

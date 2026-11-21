@@ -11,6 +11,10 @@
     "max_volume": {
       "label": "Maximum volume (%)",
       "description": "Upper limit for up and set. MPRIS allows going above 100% on some players"
+    },
+    "restart_threshold": {
+      "label": "Previous: restart after (s)",
+      "description": "When previous is pressed more than this many seconds into a track, rewind to its start instead; press again near the start to go to the previous track. 0 always skips back"
     }
   }
 }

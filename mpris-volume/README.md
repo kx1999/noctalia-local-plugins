@@ -1,7 +1,8 @@
 # MPRIS Volume
 
 Control one MPRIS player's own volume (the app-level `Volume` property, not
-the system mixer) from the shell, with a Noctalia OSD popup. Uses `playerctl`.
+the system mixer) and playback from the shell. Uses `playerctl`. It shows no
+popups; failures (player not running, etc.) go to the Noctalia log.
 
 Set the player in the plugin settings (default `ytmdesktop`; `playerctl -l`
 lists names). Instances match by prefix, and a comma-separated list picks the
@@ -15,7 +16,6 @@ noctalia msg plugin $P all up            # +step (default 5%)
 noctalia msg plugin $P all down 10       # -10%
 noctalia msg plugin $P all set 40        # 40%
 noctalia msg plugin $P all mute          # toggle 0% / previous volume
-noctalia msg plugin $P all show          # just show current volume
 noctalia msg plugin $P all up player=spotify   # one-off player override
 ```
 
@@ -37,8 +37,6 @@ noctalia msg plugin $P all stop
 noctalia msg plugin $P all seek 10       # forward 10 s
 noctalia msg plugin $P all seek -10      # back 10 s
 ```
-
-The OSD shows the track title with a play / pause / skip icon.
 
 ## Niri keybind example
 

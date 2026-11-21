@@ -1,11 +1,4 @@
 {
-  "osd": {
-    "muted": "{player} muted",
-    "status": "{player} {status}",
-    "volume": "{player} {percent}%",
-    "not_found": "{player} not running",
-    "no_volume": "{player} has no volume control"
-  },
   "settings": {
     "player": {
       "label": "Player",
@@ -18,10 +11,6 @@
     "max_volume": {
       "label": "Maximum volume (%)",
       "description": "Upper limit for up and set. MPRIS allows going above 100% on some players"
-    },
-    "show_osd": {
-      "label": "Show OSD",
-      "description": "Show Noctalia's OSD popup with the player's new volume, or the playback state / track title, after each command"
     }
   }
 }

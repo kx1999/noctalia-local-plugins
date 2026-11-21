@@ -27,12 +27,12 @@ tags = ["umbriel", "service", "utility"]
 [[plugin]]
 id = "kylex/mpris-volume"
 name = "MPRIS Volume"
-version = "1.0.0"
-updated_at = 1795249534
+version = "1.1.0"
+updated_at = 1795250400
 added_at = 1795249534
 author = "kylex"
 license = "MIT"
 icon = "volume"
-description = "Raise, lower, set, or mute the volume of a chosen MPRIS player from shell commands, with an OSD popup."
+description = "Control one chosen MPRIS player from shell commands: volume up/down/set/mute plus play, pause, toggle, next, previous, stop and seek, with an OSD popup."
 plugin_api = 43
 tags = ["audio", "media", "service", "utility"]

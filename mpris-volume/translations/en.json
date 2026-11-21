@@ -1,6 +1,7 @@
 {
   "osd": {
     "muted": "{player} muted",
+    "status": "{player} {status}",
     "volume": "{player} {percent}%",
     "not_found": "{player} not running",
     "no_volume": "{player} has no volume control"
@@ -20,7 +21,7 @@
     },
     "show_osd": {
       "label": "Show OSD",
-      "description": "Show Noctalia's OSD popup with the player's new volume after each command"
+      "description": "Show Noctalia's OSD popup with the player's new volume, or the playback state / track title, after each command"
     }
   }
 }

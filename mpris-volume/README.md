@@ -21,9 +21,31 @@ noctalia msg plugin $P all up player=spotify   # one-off player override
 
 `up` and `set` are capped at *Maximum volume* (default 100%).
 
+## Media controls
+
+These only ever touch the configured player (or `player=NAME`), unlike
+`noctalia msg media …` / bare `playerctl`, which act on whichever player is
+currently active.
+
+```sh
+noctalia msg plugin $P all toggle        # play/pause (alias: play-pause)
+noctalia msg plugin $P all play
+noctalia msg plugin $P all pause
+noctalia msg plugin $P all next
+noctalia msg plugin $P all previous      # alias: prev
+noctalia msg plugin $P all stop
+noctalia msg plugin $P all seek 10       # forward 10 s
+noctalia msg plugin $P all seek -10      # back 10 s
+```
+
+The OSD shows the track title with a play / pause / skip icon.
+
 ## Niri keybind example
 
 ```kdl
 Mod+Alt+Up   { spawn "noctalia" "msg" "plugin" "kylex/mpris-volume:service" "all" "up"; }
 Mod+Alt+Down { spawn "noctalia" "msg" "plugin" "kylex/mpris-volume:service" "all" "down"; }
+Mod+Alt+Space { spawn "noctalia" "msg" "plugin" "kylex/mpris-volume:service" "all" "toggle"; }
+Mod+Alt+Right { spawn "noctalia" "msg" "plugin" "kylex/mpris-volume:service" "all" "next"; }
+Mod+Alt+Left  { spawn "noctalia" "msg" "plugin" "kylex/mpris-volume:service" "all" "previous"; }
 ```

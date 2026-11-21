@@ -1,16 +1,17 @@
-# MPRIS Volume - control the volume of one specific MPRIS player (its own
-# app-level volume, not the system mixer) through `noctalia msg plugin`, and
-# show the result on Noctalia's OSD. Uses playerctl under the hood.
+# MPRIS Volume - control one specific MPRIS player through `noctalia msg
+# plugin`: its own app-level volume (not the system mixer) and its transport
+# (play/pause/next/previous/stop/seek), showing the result on Noctalia's OSD.
+# Uses playerctl under the hood.
 
 id = "kylex/mpris-volume"
 name = "MPRIS Volume"
-version = "1.0.0"
+version = "1.1.0"
 plugin_api = 43
 author = "kylex"
 license = "MIT"
 tags = ["audio", "media", "service", "utility"]
 icon = "volume"
-description = "Raise, lower, set, or mute the volume of a chosen MPRIS player from shell commands, with an OSD popup."
+description = "Control one chosen MPRIS player from shell commands: volume up/down/set/mute plus play, pause, toggle, next, previous, stop and seek, with an OSD popup."
 
 [[setting]]
 key = "player"

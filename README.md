@@ -8,6 +8,7 @@ loaded straight from this folder as the `local-plugins` plugin source.
 | [MPRIS Volume](#mpris-volume) | `kylex/mpris-volume` | Volume and playback control for one chosen MPRIS player |
 | [Extent OSD](#extent-osd) | `kylex/extent-osd` | OSD popup when an Umbriel window's width/height extent changes |
 | [Discord Voice](#discord-voice) | `raycursive/discord-voice` | Bar widget + panel for a local Discord voice session |
+| [Spectra](#spectra) | `kylex/spectra` | Audio visualizer for the bar, desktop and lock screen, with 20 shapes |
 
 ## Setup
 
@@ -185,3 +186,58 @@ The bridge can also be run directly; it prints JSON:
 | Hide when disconnected *(per widget)* | off | Hide the widget when not in a voice channel. |
 
 Token storage, privacy notes and more: [`discord-voice/README.md`](discord-voice/README.md).
+
+---
+
+## Spectra
+
+`kylex/spectra` · entries: bar widget `bar`, desktop / lock-screen widget
+`desktop`, panel `gallery` · the desktop widget requires `cava`
+
+A highly customizable audio visualizer with 20 shapes: bars, LED blocks,
+dots, dot matrix, bubbles, lollipops, falling peaks, wave, filled area, text
+blocks, braille, spectrogram, bass/mid/treble meter, pulse orb, radial bars,
+orbit dots, circle wave, bloom, spiral and concentric rings. Colors follow the
+Noctalia palette by default. Resolution, spacing, bar width, roundness, peaks,
+glow, dynamics and idle behaviour are all set per widget instance.
+
+- **Bar:** add **Spectra** in Settings → Bar → Widgets. Audio comes from
+  Noctalia's built-in PipeWire spectrum.
+- **Desktop / lock screen:** add **Spectra** with
+  `noctalia msg desktop-widgets-edit` or `noctalia msg lockscreen-widgets-edit`.
+  Each instance runs its own cava and, with the default **Auto** aspect,
+  fills its box at any size.
+  The editor shows one group of settings at a time; switch groups with
+  **Settings page**.
+- **Pause while fullscreen:** on by default. Each widget hides and stops
+  drawing while a fullscreen window (a game, a video) covers its output, and
+  comes back when it leaves. It listens to compositor window events through
+  `noctalia.compositor.subscribe`, so nothing polls. Works on Umbriel.
+
+### Commands
+
+```fish
+noctalia msg panel-toggle kylex/spectra:gallery                # every shape, animated
+noctalia msg plugin kylex/spectra:desktop all shape radial     # runtime preview (not saved)
+noctalia msg plugin kylex/spectra:bar all next                 # cycle shapes; also prev / demo / reset / info
+```
+
+### Settings
+
+Every setting is per widget instance. These control how much work it does:
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| Resolution | `24` bar / `64` desktop | Number of bands (4–128 on the bar, 4–256 on the desktop). |
+| Max frame rate | `60` | Upper limit on redraws per second (10–240). The desktop's cava runs at the same rate, capped at 200. |
+| When silent | fade | `keep`, `fade`, `hide` or `breathe`. Drawing stops once it settles. |
+| Silent opacity | `0.35` | Opacity used by `fade`. |
+| Silence delay | `2000` ms | How long audio must stay silent before the silent behaviour starts. |
+| Only while media plays | off | Ignore audio unless an MPRIS player is playing (skips game audio, notifications and calls). |
+| Pause while fullscreen | on | Hide and stop drawing while a fullscreen window covers this output. |
+
+Shape, layout, colors, peaks, glow, dynamics and the cava input are covered in
+[`spectra/README.md`](spectra/README.md). Settings are generated from
+`spectra/tools/gen_manifest.py` (run `python3 spectra/tools/gen_manifest.py`
+after editing it). Self-tests run inside the gallery panel; see the plugin
+README.

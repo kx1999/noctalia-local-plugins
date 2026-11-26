@@ -1,0 +1,354 @@
+{
+  "desktop": {
+    "cava_missing": "cava not found ({path}). Install cava or set its path in the widget settings.",
+    "cava_failed": "Could not start cava. Check the log for details."
+  },
+  "gallery": {
+    "hint": "Demo signal, current theme colors. Pick a shape in a widget's settings."
+  },
+  "settings": {
+    "settings_page": {
+      "label": "Settings page",
+      "description": "Which group of settings to show. Options that only apply to the selected shape (radial angles, LED segments, text rows...) are listed at the end of every page.",
+      "options": {
+        "shape": "Shape & canvas",
+        "size": "Spacing & size",
+        "colors": "Colors",
+        "effects": "Peaks & glow",
+        "response": "Response & smoothing",
+        "silence": "Silence & frame rate",
+        "audio": "Audio input (cava)"
+      }
+    },
+    "shape": {
+      "label": "Shape",
+      "description": "How the spectrum is drawn. Radial shapes look best on a square desktop widget.",
+      "options": {
+        "bars": "Bars",
+        "blocks": "LED blocks",
+        "dots": "Floating dots",
+        "dot_matrix": "Dot matrix",
+        "bubbles": "Bubbles",
+        "lollipops": "Lollipops",
+        "peaks": "Falling peaks",
+        "wave": "Wave line",
+        "area": "Filled area",
+        "text": "Text blocks ▁▃▅▇",
+        "braille": "Braille ⣀⣤⣶⣿",
+        "spectrogram": "Spectrogram (waterfall)",
+        "meter": "Bass / mid / treble meter",
+        "pulse": "Pulse orb",
+        "radial": "Radial bars",
+        "radial_dots": "Orbit dots",
+        "circle_wave": "Circle wave",
+        "bloom": "Bloom (petals)",
+        "spiral": "Spiral",
+        "rings": "Concentric rings"
+      }
+    },
+    "baseline": {
+      "label": "Baseline",
+      "description": "Where linear shapes grow from. Center mirrors them up and down. On a vertical bar, bottom means the left edge.",
+      "options": {
+        "bottom": "Bottom",
+        "center": "Center (mirrored)",
+        "top": "Top"
+      }
+    },
+    "frequency_layout": {
+      "label": "Frequency layout",
+      "description": "Order of frequencies along the shape. Auto uses low → high for linear shapes and bass-centered mirroring for radial ones.",
+      "options": {
+        "auto": "Auto",
+        "low_high": "Low → high",
+        "high_low": "High → low",
+        "mirror_center": "Mirrored, bass in the center",
+        "mirror_edges": "Mirrored, bass at the edges"
+      }
+    },
+    "audio_spectrum_bands": {
+      "label": "Resolution (bands)",
+      "description": "Number of bars / points drawn. Mirrored layouts analyse half as many bands and draw each twice."
+    },
+    "length": {
+      "label": "Length",
+      "description": "Widget length along the bar, in px (before the bar's scale)."
+    },
+    "thickness": {
+      "label": "Thickness",
+      "description": "Widget size across the bar, in px. Radial shapes use a square of this size."
+    },
+    "aspect": {
+      "label": "Canvas aspect ratio",
+      "description": "Auto fills the whole widget box at any size. A fixed ratio keeps that proportion and is centered in the box.",
+      "options": {
+        "auto": "Auto (fill the box)",
+        "1:1": "1:1",
+        "4:3": "4:3",
+        "16:9": "16:9",
+        "2:1": "2:1",
+        "3:1": "3:1",
+        "4:1": "4:1",
+        "6:1": "6:1",
+        "8:1": "8:1",
+        "12:1": "12:1",
+        "16:1": "16:1",
+        "custom": "Custom"
+      }
+    },
+    "canvas_width": {
+      "label": "Canvas width",
+      "description": "Canvas width in design units when the aspect ratio is Custom."
+    },
+    "canvas_height": {
+      "label": "Canvas height",
+      "description": "Canvas height in design units when the aspect ratio is Custom."
+    },
+    "orientation": {
+      "label": "Orientation",
+      "description": "Vertical runs the bands top to bottom, for tall boxes along a screen edge. Preset aspect ratios flip to match.",
+      "options": {
+        "horizontal": "Horizontal",
+        "vertical": "Vertical"
+      }
+    },
+    "spacing": {
+      "label": "Spacing",
+      "description": "Gap between bars, dots or cells (rows for the meter, ring gap for rings)."
+    },
+    "bar_width": {
+      "label": "Bar width",
+      "description": "Fixed width of each bar. 0 fits the bars to the available length."
+    },
+    "roundness": {
+      "label": "Corner roundness (%)",
+      "description": "0 is square, 100 is fully rounded (pill / circle ends)."
+    },
+    "min_size": {
+      "label": "Minimum size",
+      "description": "Length every element keeps at silence, so a quiet baseline stays visible. 0 lets it vanish."
+    },
+    "color_mode": {
+      "label": "Color mode",
+      "description": "Theme colors stay in sync with your Noctalia palette.",
+      "options": {
+        "solid": "Solid (color 1)",
+        "gradient": "Gradient across (1 → 2 → 3)",
+        "level": "By level (quiet = 1, loud = 2 / 3)",
+        "rainbow": "Rainbow (hue from color 1)",
+        "palette": "Alternate colors 1 / 2 / 3"
+      }
+    },
+    "color_1": {
+      "label": "Color 1"
+    },
+    "color_2": {
+      "label": "Color 2",
+      "description": "Second gradient stop; also the accent of the bloom center and pulse rings."
+    },
+    "use_color_3": {
+      "label": "Use color 3",
+      "description": "Add a third stop to gradients and alternating colors."
+    },
+    "color_3": {
+      "label": "Color 3",
+      "description": "Third gradient / alternating color, when Use color 3 is on."
+    },
+    "rainbow_speed": {
+      "label": "Rainbow speed (°/s)",
+      "description": "Hue rotation of the Rainbow color mode. 0 keeps it still."
+    },
+    "opacity": {
+      "label": "Opacity"
+    },
+    "track_opacity": {
+      "label": "Track / unlit opacity",
+      "description": "Opacity of unlit LED cells, meter segments, ring tracks, the radial base circle and bar tracks. 0 hides them."
+    },
+    "bar_tracks": {
+      "label": "Show bar tracks",
+      "description": "Draw a faint full-length track behind each bar."
+    },
+    "glow": {
+      "label": "Glow",
+      "description": "Soft glow radius behind bars and dots. Doubles the drawn elements, so keep it modest at high resolutions."
+    },
+    "glow_strength": {
+      "label": "Glow strength"
+    },
+    "show_peaks": {
+      "label": "Show peaks",
+      "description": "Caps that hold the recent maximum and then fall."
+    },
+    "custom_peak_color": {
+      "label": "Custom peak color",
+      "description": "Off draws peaks in each bar's own color."
+    },
+    "peak_color": {
+      "label": "Peak color",
+      "description": "Used when Custom peak color is on."
+    },
+    "peak_thickness": {
+      "label": "Peak thickness",
+      "description": "Peak settings apply when Show peaks is on."
+    },
+    "peak_hold_ms": {
+      "label": "Peak hold (ms)"
+    },
+    "peak_gravity": {
+      "label": "Peak fall speed",
+      "description": "Gravity applied to falling peaks (full heights per second²)."
+    },
+    "segments": {
+      "label": "Segments",
+      "description": "LED cells per band (blocks, dot matrix) or per meter row. 1 makes the meter continuous."
+    },
+    "segment_gap": {
+      "label": "Segment gap",
+      "description": "Gap between cells (and between spectrogram rows)."
+    },
+    "text_rows": {
+      "label": "Minimum text rows",
+      "description": "Lines of characters stacked to draw taller bars. More rows are added automatically to fill the height when the band count makes the characters small."
+    },
+    "text_font": {
+      "label": "Text font",
+      "description": "Font family for the text shapes. A monospace font keeps columns aligned."
+    },
+    "history": {
+      "label": "History rows",
+      "description": "Rows of past spectra kept on screen (capped at about 1400 cells)."
+    },
+    "history_ms": {
+      "label": "Scroll interval (ms)",
+      "description": "Time between spectrogram rows."
+    },
+    "ring_count": {
+      "label": "Rings",
+      "description": "Number of concentric rings; the outer ring is the bass."
+    },
+    "radial_direction": {
+      "label": "Bar direction",
+      "options": {
+        "out": "Outward",
+        "in": "Inward",
+        "both": "Both ways"
+      }
+    },
+    "radial_inner": {
+      "label": "Inner radius (%)",
+      "description": "Radius of the base circle as a share of the available radius."
+    },
+    "radial_arc": {
+      "label": "Arc (°)",
+      "description": "How much of the circle is used; less than 360 draws a fan centered on the rotation angle."
+    },
+    "radial_rotation": {
+      "label": "Rotation (°)",
+      "description": "Turns the whole shape; 0 points the start (or the fan center) at 12 o'clock."
+    },
+    "spin": {
+      "label": "Spin (°/s)",
+      "description": "Continuous rotation. Rings alternate direction."
+    },
+    "spiral_turns": {
+      "label": "Spiral turns"
+    },
+    "line_width": {
+      "label": "Line width"
+    },
+    "fill_opacity": {
+      "label": "Fill opacity"
+    },
+    "sensitivity": {
+      "label": "Sensitivity",
+      "description": "Gain applied to the spectrum before drawing."
+    },
+    "noise_floor": {
+      "label": "Noise floor",
+      "description": "Levels below this are treated as silence."
+    },
+    "curve": {
+      "label": "Response curve",
+      "description": "Below 1 lifts quiet parts, above 1 emphasises loud hits."
+    },
+    "tilt": {
+      "label": "Treble tilt",
+      "description": "Positive boosts highs and cuts bass; negative does the opposite."
+    },
+    "spread": {
+      "label": "Neighbour spread",
+      "description": "Lifts each band toward its neighbours for smoother, rounder shapes (monstercat-style)."
+    },
+    "attack_ms": {
+      "label": "Rise smoothing (ms)",
+      "description": "Time constant for rising levels. 0 reacts instantly."
+    },
+    "release_ms": {
+      "label": "Fall smoothing (ms)",
+      "description": "Time constant for falling levels. Higher values fall more slowly."
+    },
+    "idle_mode": {
+      "label": "When silent",
+      "options": {
+        "keep": "Keep showing",
+        "fade": "Fade out",
+        "hide": "Hide",
+        "breathe": "Gentle breathing animation"
+      }
+    },
+    "idle_opacity": {
+      "label": "Silent opacity",
+      "description": "Opacity to fade to when silent behaviour is Fade out."
+    },
+    "idle_delay_ms": {
+      "label": "Silence delay (ms)",
+      "description": "How long the audio must stay silent before the silent behaviour starts."
+    },
+    "max_fps": {
+      "label": "Max frame rate",
+      "description": "Upper limit on redraws per second."
+    },
+    "mpris_only": {
+      "label": "Only while media plays",
+      "description": "Ignore audio unless an MPRIS player is playing (skips notification sounds and calls)."
+    },
+    "pause_fullscreen": {
+      "label": "Pause while fullscreen",
+      "description": "Hide and stop drawing while a fullscreen window (a game, a video) covers this output. Needs a compositor Noctalia can watch (Umbriel, niri, Hyprland)."
+    },
+    "audio_spectrum": {
+      "label": "Capture audio",
+      "description": "Subscribe to Noctalia's PipeWire spectrum. Turning it off leaves the widget idle."
+    },
+    "cava_path": {
+      "label": "cava executable",
+      "description": "The desktop widget runs cava for audio. A bare name is looked up in PATH."
+    },
+    "cava_method": {
+      "label": "cava input",
+      "options": {
+        "pipewire": "PipeWire",
+        "pulse": "PulseAudio"
+      }
+    },
+    "audio_source": {
+      "label": "Audio source",
+      "description": "cava source (node / monitor name). Empty uses the default output, so you see what you hear."
+    },
+    "cava_noise_reduction": {
+      "label": "cava smoothing",
+      "description": "cava's own noise reduction. Higher is smoother but slower."
+    },
+    "cava_autosens": {
+      "label": "cava auto sensitivity",
+      "description": "Let cava normalise loudness automatically."
+    },
+    "low_cutoff": {
+      "label": "Lowest frequency (Hz)"
+    },
+    "high_cutoff": {
+      "label": "Highest frequency (Hz)"
+    }
+  }
+}

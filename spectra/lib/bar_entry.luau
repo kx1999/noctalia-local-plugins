@@ -85,14 +85,15 @@ function M.new(widget, overrides)
     setInterval(if engine.animating then 33 else 500)
   end
 
-  local function parseCsv(csv: string)
-    local out = {}
-    local i = 0
-    for part in string.gmatch(csv, "[^,]+") do
-      i += 1
-      out[i] = tonumber(part) or 0
+  -- Split only: the DSP parses each field in its own loop (Noctalia meters
+  -- every loop iteration, so a separate parse pass would cost as much again).
+  local function splitCsv(csv: string)
+    local parts = string.split(csv, ",")
+    local m = #parts
+    if m > 0 and parts[m] == "" then
+      parts[m] = nil
     end
-    return out
+    return parts
   end
 
   -- Host spectrum frame: valuesCsv "0.1200,0.5000,..." (low -> high),
@@ -112,7 +113,7 @@ function M.new(widget, overrides)
     local active = string.sub(state, 1, 1) == "1"
     local playing = string.sub(state, 3, 3) == "1"
     engine.mprisBlocked = c.mprisOnly and not playing
-    local raw = if active then parseCsv(valuesCsv or "") else nil
+    local raw = if active then splitCsv(valuesCsv or "") else nil
     applyGeometry()
     present(engine:advance(now, raw))
   end

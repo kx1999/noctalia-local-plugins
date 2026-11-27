@@ -213,6 +213,7 @@ function Palette:refresh(): boolean
   self.rainbowL = math.clamp(l, 0.45, 0.75)
   self.cache = {}
   self.lists = {}
+  self.spreadCache = nil
   return true
 end
 
@@ -227,6 +228,16 @@ end
 -- Largest per-channel difference (0..255) the current mode sweeps through, so
 -- callers can split a smooth gradient into enough steps to avoid banding.
 function Palette:spread(): number
+  local cached = self.spreadCache
+  if cached ~= nil then
+    return cached
+  end
+  local spread = self:computeSpread()
+  self.spreadCache = spread
+  return spread
+end
+
+function Palette:computeSpread(): number
   if self.mode == "solid" then
     return 0
   elseif self.mode == "rainbow" then

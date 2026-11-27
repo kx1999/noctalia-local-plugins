@@ -244,9 +244,10 @@ function Engine:setMessage(text: string?)
 end
 
 -- Advance one frame. `raw` is the latest source spectrum (nil = silence /
--- no new data). Returns a ui tree when something needs drawing, else nil.
+-- no new data): numbers or numeric strings, each times `scale` (default 1)
+-- in 0..1. Returns a ui tree when something needs drawing, else nil.
 -- `force` bypasses the frame-rate throttle (used after IPC / config changes).
-function Engine:advance(now: number, raw, force: boolean?)
+function Engine:advance(now: number, raw, force: boolean?, scale: number?)
   local c = self.c
   -- Paused while fullscreen: hide and draw nothing until the window leaves.
   if self.paused then
@@ -275,18 +276,24 @@ function Engine:advance(now: number, raw, force: boolean?)
   if self.mprisBlocked then
     raw = nil
   end
-  dsp:observe(raw, dt)
-  local idle = dsp.idle and not self.demo
-  local drawRaw = raw
   local synthetic = false
-  if self.demo then
-    drawRaw = Dsp.demo(48, t, self.synth)
-    synthetic = true
-  elseif idle and c.idleMode == "breathe" then
-    drawRaw = Dsp.breathe(48, t, self.synth)
-    synthetic = true
+  if self.demo or (dsp.idle and c.idleMode == "breathe") then
+    -- Synthetic frames: watch the real source separately.
+    dsp:observe(raw, dt, scale)
+    if self.demo then
+      dsp:step(Dsp.demo(48, t, self.synth), dt)
+      synthetic = true
+    elseif dsp.idle then
+      dsp:step(Dsp.breathe(48, t, self.synth), dt)
+      synthetic = true
+    else
+      dsp:step(raw, dt, scale)
+    end
+  else
+    -- step() measures the source level on its way through.
+    dsp:observeEnergy(dsp:step(raw, dt, scale), dt)
   end
-  dsp:step(drawRaw, dt)
+  local idle = dsp.idle and not self.demo
 
   local target = 1
   if idle then
@@ -347,6 +354,7 @@ function Engine:render(t: number, opacityChanged: boolean?)
   -- Screen pixels per canvas unit (known on the desktop once the box is
   -- found; an estimate elsewhere), so shapes can size detail to the screen.
   ctx.pxPerUnit = self.pxPerUnit or 1.5
+  ctx.pxPerUnitKnown = self.pxPerUnit ~= nil
   ctx.t = t
   ctx.state = self.shapeState
   ctx.out = {}
@@ -357,6 +365,7 @@ function Engine:render(t: number, opacityChanged: boolean?)
     return nil
   end
   local tree = Canvas.compose(self.canvasW, self.canvasH, ctx.out, {
+    key = if vertical then "canvas:" .. name .. ":v" else "canvas:" .. name,
     vertical = vertical,
     frameH = ctx.H,
     offsetX = (vw - self.canvasW) / 2,

@@ -277,16 +277,17 @@ function M.new(widget, overrides)
     if last ~= nil and now - last < (1000 / c.maxFps) * 0.85 then
       return
     end
-    local raw = {}
-    local i = 0
-    for part in string.gmatch(line, "%d+") do
-      i += 1
-      raw[i] = tonumber(part) / 1000
+    -- Split only: the DSP parses (and scales) each field in its own loop.
+    local raw = string.split(line, ";")
+    local m = #raw
+    if m > 0 and raw[m] == "" then
+      raw[m] = nil
+      m -= 1
     end
-    if i == 0 then
+    if m == 0 then
       return
     end
-    present(engine:advance(now, raw))
+    present(engine:advance(now, raw, false, 0.001))
   end
 
   local function startCava()

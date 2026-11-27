@@ -126,29 +126,71 @@ noctalia msg plugin $W all info            # log shape / bands / idle state
 ## Performance
 
 Noctalia meters every plugin callback at 25 ms of CPU and disables a widget
-that keeps exceeding that limit. Spectra stays well under it:
+that keeps exceeding that limit. To do that it reads the thread's CPU clock
+(a ~0.4 µs syscall) at every Luau call, return and loop back-edge. In practice
+a loop iteration costs about 0.42 µs and a call to a Luau function about
+0.86 µs, while the arithmetic inside is nearly free. Spectra's hot paths are
+written for that cost model:
 
-Measured with `bench` at 64 bands, counting tree building plus Noctalia's
-`render()`:
+- The DSP is one fused, 4×-unrolled loop per frame that parses the split cava
+  or host line, shapes, smooths and tracks peaks and silence. Display arrays
+  share the analysis arrays when no reordering is needed.
+- Shapes write primitive tables directly instead of calling helpers, and copy
+  with `table.move` (one C call) instead of loops.
+- The canvas packs each run of equal-width (or equal-height) primitives into
+  one row (or column) whose `gap` is minus that size. Flex then advances by 0,
+  so every child starts at the origin and is placed by translate, without a
+  zero-height slot of its own. This halves the nodes the host marshals,
+  reconciles and lays out. Props the host defaults are left out.
 
-| Shape | CPU per frame |
-| --- | --- |
-| pulse, rings | 0.2–0.3 ms |
-| bars, dots, bubbles, radial, radial dots, spiral | 0.4–0.65 ms |
-| lollipops, peaks, bloom, circle wave, meter, braille | 0.6–0.9 ms |
-| spectrogram (64 × 21 cells) | about 1.3 ms, only when a new row scrolls in |
-| wave, area | about 0.5–1 ms (one clipped graph per color slice) |
-| text (128 bands, rows filling the height) | about 1.4 ms |
-| blocks / dot matrix (64 × 16 cells) | about 2 ms; unchanged columns are reused |
+Measured with `bench` (Luau tree building per frame, plus Noctalia's
+`render()` marshalling; 64 bands unless noted):
+
+| Shape | Nodes | CPU per frame |
+| --- | --- | --- |
+| pulse, rings | 9–11 | about 0.2 ms |
+| bars, dots, bloom, radial, spiral | 67–101 | 0.25–0.35 ms |
+| bars with peaks and tracks | 195 | about 0.4 ms |
+| lollipops, circle wave, meter | 51–133 | 0.3–0.4 ms |
+| wave, area (128 bands, by level) | about 165 | about 0.5 ms |
+| text (128 bands, rows filling the height) | 4 | about 0.45 ms |
+| spectrogram (64 × 21 cells) | 1368 | about 0.5 ms, only when a row scrolls in |
+| blocks / dot matrix (64 × 16 cells) | 1091 | about 0.6 ms; unchanged columns are reused |
 
 **Wave and area** use Noctalia's `ui.graph`, which draws the curve per pixel
 on the GPU and fades the fill from the baseline up. Spectra adjusts for its
 quirks. The graph keeps a padding band above and below the plot, and it hides
 its first samples behind a scroll window. So Spectra makes the graph slightly
 larger than the box and clips it: the baseline and the first and last bands sit
-exactly on the edges. Color modes cut the graph into clipped slices (columns, or
-rows for "by level"), with enough slices that neighbouring colors differ by less
-than one 8-bit step.
+exactly on the edges. Color modes cut the graph into clipped tiles (columns, or
+rows for "by level"), with enough of them that neighbouring colors differ by
+less than one 8-bit step.
+
+The graph shader evaluates the curve about 20 times per pixel and series,
+over the node's whole area. On a full-screen widget that dominated the GPU, so
+every tile is cut down to where the curve can actually paint: the cubic's
+overshoot, the line width and anti-aliasing are all accounted for, and the
+empty rest is never shaded. Column tiles (gradient, rainbow, alternate, and
+8 strips for solid) keep only the height their stretch of curve reaches. "By
+level" keeps one tile per color row and clips it sideways to the stretch of
+curve that crosses that row. Column tiles get only the samples they read (a
+window of the series), placed so they draw exactly the same curve as the full
+graph; row tiles keep the full series, because their reach changes every
+frame and the host mis-samples a graph whose data shrinks (it keeps the larger
+texture but indexes it by the new width). For the same reason a tile's node
+key changes whenever its data size could. On the desktop, where the pixel
+scale is known, tiles that meet are sized in whole pixels: the host rounds
+clip edges outwards, so tiles meeting mid-pixel would paint the shared pixel
+row twice. The host's CPU cost grows with the number of graphs, so tiles are
+never split further than the colors need.
+
+Measured on a 5120 × 1440 desktop widget (128 bands, by level, 120 fps, demo
+signal), compared with the earlier one-graph-per-slice version: the wave's
+GPU cost dropped from +30% to +18% busy (+22 W to +13 W), and the shell's main
+thread from +4.9 to +3.3 points of a core. Real music, with fewer bands at full
+height, gains more. The geometry
+self-test re-evaluates the shader's curve and checks that the tiles cover every
+pixel the line, its anti-aliasing or the fill can touch.
 
 A very faint fade can still show a few steps on a large widget: at 5% total
 alpha (fill opacity × opacity) the fade spans only about 8 brightness levels,
@@ -182,20 +224,24 @@ fullscreen window stays open behind the lock.
   and page, and fails if any page would show more than `MAX_DESKTOP_ROWS` rows.
 - Layout: `lib/engine.luau` holds the core (settings, frame loop, IPC),
   `lib/dsp.luau` the spectrum processing, `lib/shapes.luau` the shapes,
-  `lib/canvas.luau` absolute placement on top of flex (zero-height slots plus
-  paint-only transforms), and `lib/color.luau` the palette handling.
+  `lib/canvas.luau` absolute placement on top of flex (zero-gap runs and
+  zero-height slots plus paint-only transforms), and `lib/color.luau` the palette handling.
 - Self-tests run inside the gallery panel (open it first) and log to
   `~/.cache/noctalia/noctalia.log`:
 
   ```fish
   set G kylex/spectra:gallery
   noctalia msg panel-open $G
-  # geometry: 1500 shape configurations, every element finite and inside its canvas
+  # geometry: 2640 shape configurations: every element finite, inside its
+  # canvas and laid out at the origin; curve tiles cover the drawn curve
   noctalia msg plugin $G all selftest
-  for i in (seq 1600); noctalia msg plugin $G all selftest-step; end
+  for i in (seq 2700); noctalia msg plugin $G all selftest-step; end
   # entries: bar + desktop logic driven with fake spectrum frames / cava lines
   noctalia msg plugin $G all entrytest
   for i in (seq 250); noctalia msg plugin $G all entrytest-step; end
-  # per-frame CPU of one shape: "<shape> [bands] [glow]"
+  # per-frame CPU of one shape: "<shape> [bands] [glow] [px/unit] [key=value ...]"
   noctalia msg plugin $G all bench "blocks 64 0"
+  noctalia msg plugin $G all bench "wave 128 0 7.2 color_mode=level view=711x200"
+  # the host's metering cost (loop iteration, Luau call, unrolled body)
+  noctalia msg plugin $G all bench calibrate
   ```

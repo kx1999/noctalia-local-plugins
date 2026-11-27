@@ -83,22 +83,8 @@ local KEYS = setmetatable({}, {
 
 -- Catmull-Rom resampler, defined with the radial shapes below.
 local smooth
-
-local function box(out, key, cx, cy, w, h, fill, radius, rot, op, glow)
-  out[#out + 1] = {
-    kind = "box",
-    key = key,
-    cx = cx,
-    cy = cy,
-    w = w,
-    h = h,
-    fill = fill,
-    radius = radius,
-    rot = rot,
-    op = op,
-    glow = glow ~= false,
-  }
-end
+-- Cached glyph maps for the text shape, defined with it.
+local textMaps
 
 -- Horizontal band geometry: bar width, gap and the left edge of bar 1.
 local function columns(ctx, n)
@@ -131,21 +117,6 @@ local function peakRoom(c)
   return if c.showPeaks then c.peakThickness + 1 else 0
 end
 
--- Peak caps for linear shapes (one, or two for a centered baseline).
-local function linearPeak(out, keyA, keyB, c, H, cx, bw, len, color)
-  local pt = c.peakThickness
-  local r = min(pt, bw) / 2 * c.roundness
-  if c.baseline == "center" then
-    local off = len / 2 + 1 + pt / 2
-    box(out, keyA, cx, H / 2 - off, bw, pt, color, r)
-    box(out, keyB, cx, H / 2 + off, bw, pt, color, r)
-  elseif c.baseline == "top" then
-    box(out, keyA, cx, len + 1 + pt / 2, bw, pt, color, r)
-  else
-    box(out, keyA, cx, H - len - 1 - pt / 2, bw, pt, color, r)
-  end
-end
-
 -- ── Linear shapes ───────────────────────────────────────────────────────────
 
 function S.bars(ctx)
@@ -161,21 +132,58 @@ function S.bars(ctx)
   local tracks = if c.barTracks then pal:colors(n, pal.trackAlpha) else nil
   local peakCol = pal.peakToken ~= nil and pal:peak(1, n, 1) or nil
   local kb, kt, kp, kq = KEYS.b, KEYS.t, KEYS.p, KEYS.q
+  local pt = c.peakThickness
+  local pr = min(pt, bw) / 2 * c.roundness
   for i = 1, n do
     local v = values[i]
     local cx = x0 + (i - 1) * (bw + gap) + bw / 2
     if tracks ~= nil then
       local ty = if center then H / 2 elseif top then span / 2 else H - span / 2
-      box(out, kt[i], cx, ty, bw, span, tracks[if lv then LV1 else i], round * min(bw, span), 0, 1, false)
+      out[#out + 1] = {
+        kind = "box",
+        key = kt[i],
+        cx = cx,
+        cy = ty,
+        w = bw,
+        h = span,
+        fill = tracks[if lv then LV1 else i],
+        radius = round * min(bw, span),
+        glow = false,
+      }
     end
     local L = minS + v * (span - minS)
     local cy = if center then H / 2 elseif top then L / 2 else H - L / 2
     local col = cols[if lv then (v * LV + 0.5) // 1 + 1 else i]
-    box(out, kb[i], cx, cy, bw, L, col, round * min(bw, L))
+    out[#out + 1] = {
+      kind = "box",
+      key = kb[i],
+      cx = cx,
+      cy = cy,
+      w = bw,
+      h = L,
+      fill = col,
+      radius = round * min(bw, L),
+      glow = true,
+    }
     if room > 0 then
       local pv = peaks[i]
       local pl = minS + pv * (span - minS)
-      linearPeak(out, kp[i], kq[i], c, H, cx, bw, pl, peakCol or cols[if lv then (pv * LV + 0.5) // 1 + 1 else i])
+      local pcol = peakCol or cols[if lv then (pv * LV + 0.5) // 1 + 1 else i]
+      local py = if center then H / 2 - (pl / 2 + 1 + pt / 2) elseif top then pl + 1 + pt / 2 else H - pl - 1 - pt / 2
+      out[#out + 1] = { kind = "box", key = kp[i], cx = cx, cy = py, w = bw, h = pt, fill = pcol, radius = pr, glow = true }
+      if center then
+        out[#out + 1] = {
+          kind = "box",
+          key = kq[i],
+          cx = cx,
+          cy = H / 2 + (pl / 2 + 1 + pt / 2),
+          w = bw,
+          h = pt,
+          fill = pcol,
+          radius = pr,
+          glow = true,
+        }
+      end
     end
   end
 end
@@ -201,24 +209,77 @@ function S.peaks(ctx)
     local cx = x0 + (i - 1) * (bw + gap) + bw / 2
     local L = minS + v * (span - minS)
     local cy = if center then H / 2 elseif top then L / 2 else H - L / 2
-    box(out, kg[i], cx, cy, bw, L, ghosts[if lv then (v * LV + 0.5) // 1 + 1 else i], round * min(bw, L), 0, 1, false)
+    out[#out + 1] = {
+      kind = "box",
+      key = kg[i],
+      cx = cx,
+      cy = cy,
+      w = bw,
+      h = L,
+      fill = ghosts[if lv then (v * LV + 0.5) // 1 + 1 else i],
+      radius = round * min(bw, L),
+      glow = false,
+    }
     local pv = peaks[i]
     local pl = minS + pv * (span - minS)
     local col = peakCol or cols[if lv then (pv * LV + 0.5) // 1 + 1 else i]
     if center then
       local off = pl / 2 + 1 + pt / 2
-      box(out, kp[i], cx, H / 2 - off, bw, pt, col, r)
-      box(out, kq[i], cx, H / 2 + off, bw, pt, col, r)
+      out[#out + 1] = {
+        kind = "box",
+        key = kp[i],
+        cx = cx,
+        cy = H / 2 - off,
+        w = bw,
+        h = pt,
+        fill = col,
+        radius = r,
+        glow = true,
+      }
+      out[#out + 1] = {
+        kind = "box",
+        key = kq[i],
+        cx = cx,
+        cy = H / 2 + off,
+        w = bw,
+        h = pt,
+        fill = col,
+        radius = r,
+        glow = true,
+      }
     elseif top then
-      box(out, kp[i], cx, pl + 1 + pt / 2, bw, pt, col, r)
+      out[#out + 1] = {
+        kind = "box",
+        key = kp[i],
+        cx = cx,
+        cy = pl + 1 + pt / 2,
+        w = bw,
+        h = pt,
+        fill = col,
+        radius = r,
+        glow = true,
+      }
     else
-      box(out, kp[i], cx, H - pl - 1 - pt / 2, bw, pt, col, r)
+      out[#out + 1] = {
+        kind = "box",
+        key = kp[i],
+        cx = cx,
+        cy = H - pl - 1 - pt / 2,
+        w = bw,
+        h = pt,
+        fill = col,
+        radius = r,
+        glow = true,
+      }
     end
   end
 end
 
 -- One dot per band riding at the band's level.
 function S.dots(ctx)
+  -- Emitted in layers (tracks, then the rest), which never overlap across
+  -- bands: each layer is a run of equal-size nodes the canvas packs together.
+  local lt, lm, lp = {}, {}, {}
   local c, pal, n, H, out = ctx.c, ctx.pal, ctx.n, ctx.H, ctx.out
   local values, peaks = ctx.values, ctx.peaks
   local bw, gap, x0 = columns(ctx)
@@ -238,18 +299,68 @@ function S.dots(ctx)
     local cx = x0 + (i - 1) * (bw + gap) + bw / 2
     local col = cols[if lv then (v * LV + 0.5) // 1 + 1 else i]
     if tracks ~= nil then
-      box(out, kt[i], cx, H / 2, sw, H, tracks[if lv then LV1 else i], sw / 2, 0, 1, false)
+      lt[#lt + 1] = {
+        kind = "box",
+        key = kt[i],
+        cx = cx,
+        cy = H / 2,
+        w = sw,
+        h = H,
+        fill = tracks[if lv then LV1 else i],
+        radius = sw / 2,
+        glow = false,
+      }
     end
     if center then
       local off = v * travel / 2
-      box(out, ka[i], cx, H / 2 - off, d, d, col, d / 2)
+      lm[#lm + 1] = {
+        kind = "box",
+        key = ka[i],
+        cx = cx,
+        cy = H / 2 - off,
+        w = d,
+        h = d,
+        fill = col,
+        radius = d / 2,
+        glow = true,
+      }
       if off > 0.5 then
-        box(out, kb[i], cx, H / 2 + off, d, d, col, d / 2)
+        lm[#lm + 1] = {
+          kind = "box",
+          key = kb[i],
+          cx = cx,
+          cy = H / 2 + off,
+          w = d,
+          h = d,
+          fill = col,
+          radius = d / 2,
+          glow = true,
+        }
       end
     elseif top then
-      box(out, ka[i], cx, d / 2 + v * travel, d, d, col, d / 2)
+      lm[#lm + 1] = {
+        kind = "box",
+        key = ka[i],
+        cx = cx,
+        cy = d / 2 + v * travel,
+        w = d,
+        h = d,
+        fill = col,
+        radius = d / 2,
+        glow = true,
+      }
     else
-      box(out, ka[i], cx, H - d / 2 - v * travel, d, d, col, d / 2)
+      lm[#lm + 1] = {
+        kind = "box",
+        key = ka[i],
+        cx = cx,
+        cy = H - d / 2 - v * travel,
+        w = d,
+        h = d,
+        fill = col,
+        radius = d / 2,
+        glow = true,
+      }
     end
     if room > 0 then
       local pv = peaks[i]
@@ -257,19 +368,65 @@ function S.dots(ctx)
       local off = d / 2 + 1 + pd / 2
       if center then
         local y = pv * travel / 2 + off
-        box(out, kp[i], cx, H / 2 - y, pd, pd, pcol, pd / 2)
-        box(out, kq[i], cx, H / 2 + y, pd, pd, pcol, pd / 2)
+        lp[#lp + 1] = {
+          kind = "box",
+          key = kp[i],
+          cx = cx,
+          cy = H / 2 - y,
+          w = pd,
+          h = pd,
+          fill = pcol,
+          radius = pd / 2,
+          glow = true,
+        }
+        lp[#lp + 1] = {
+          kind = "box",
+          key = kq[i],
+          cx = cx,
+          cy = H / 2 + y,
+          w = pd,
+          h = pd,
+          fill = pcol,
+          radius = pd / 2,
+          glow = true,
+        }
       elseif top then
-        box(out, kp[i], cx, d / 2 + pv * travel + off, pd, pd, pcol, pd / 2)
+        lp[#lp + 1] = {
+          kind = "box",
+          key = kp[i],
+          cx = cx,
+          cy = d / 2 + pv * travel + off,
+          w = pd,
+          h = pd,
+          fill = pcol,
+          radius = pd / 2,
+          glow = true,
+        }
       else
-        box(out, kp[i], cx, H - d / 2 - pv * travel - off, pd, pd, pcol, pd / 2)
+        lp[#lp + 1] = {
+          kind = "box",
+          key = kp[i],
+          cx = cx,
+          cy = H - d / 2 - pv * travel - off,
+          w = pd,
+          h = pd,
+          fill = pcol,
+          radius = pd / 2,
+          glow = true,
+        }
       end
     end
   end
+  table.move(lt, 1, #lt, #out + 1, out)
+  table.move(lm, 1, #lm, #out + 1, out)
+  table.move(lp, 1, #lp, #out + 1, out)
 end
 
 -- Thin stems with a round head.
 function S.lollipops(ctx)
+  -- Emitted in layers (tracks, then the rest), which never overlap across
+  -- bands: each layer is a run of equal-size nodes the canvas packs together.
+  local lt, ls, lh = {}, {}, {}
   local c, pal, n, H, out = ctx.c, ctx.pal, ctx.n, ctx.H, ctx.out
   local values = ctx.values
   local bw, gap, x0 = columns(ctx)
@@ -285,23 +442,86 @@ function S.lollipops(ctx)
     local cx = x0 + (i - 1) * (bw + gap) + bw / 2
     local col = cols[if lv then (v * LV + 0.5) // 1 + 1 else i]
     if tracks ~= nil then
-      box(out, kt[i], cx, H / 2, sw, H, tracks[if lv then LV1 else i], sw / 2, 0, 1, false)
+      lt[#lt + 1] = {
+        kind = "box",
+        key = kt[i],
+        cx = cx,
+        cy = H / 2,
+        w = sw,
+        h = H,
+        fill = tracks[if lv then LV1 else i],
+        radius = sw / 2,
+        glow = false,
+      }
     end
     if center then
       local off = v * travel / 2
-      box(out, ks[i], cx, H / 2, sw, max(sw, 2 * off), col, sw / 2)
-      box(out, ka[i], cx, H / 2 - off, d, d, col, d / 2)
-      box(out, kb[i], cx, H / 2 + off, d, d, col, d / 2)
+      ls[#ls + 1] = {
+        kind = "box",
+        key = ks[i],
+        cx = cx,
+        cy = H / 2,
+        w = sw,
+        h = max(sw, 2 * off),
+        fill = col,
+        radius = sw / 2,
+        glow = true,
+      }
+      lh[#lh + 1] = {
+        kind = "box",
+        key = ka[i],
+        cx = cx,
+        cy = H / 2 - off,
+        w = d,
+        h = d,
+        fill = col,
+        radius = d / 2,
+        glow = true,
+      }
+      lh[#lh + 1] = {
+        kind = "box",
+        key = kb[i],
+        cx = cx,
+        cy = H / 2 + off,
+        w = d,
+        h = d,
+        fill = col,
+        radius = d / 2,
+        glow = true,
+      }
     else
       local hy = if top then d / 2 + v * travel else H - d / 2 - v * travel
       local base = if top then 0 else H
       local len = abs(base - hy)
       if len > 0.5 then
-        box(out, ks[i], cx, (base + hy) / 2, sw, len, col, sw / 2)
+        ls[#ls + 1] = {
+          kind = "box",
+          key = ks[i],
+          cx = cx,
+          cy = (base + hy) / 2,
+          w = sw,
+          h = len,
+          fill = col,
+          radius = sw / 2,
+          glow = true,
+        }
       end
-      box(out, ka[i], cx, hy, d, d, col, d / 2)
+      lh[#lh + 1] = {
+        kind = "box",
+        key = ka[i],
+        cx = cx,
+        cy = hy,
+        w = d,
+        h = d,
+        fill = col,
+        radius = d / 2,
+        glow = true,
+      }
     end
   end
+  table.move(lt, 1, #lt, #out + 1, out)
+  table.move(ls, 1, #ls, #out + 1, out)
+  table.move(lh, 1, #lh, #out + 1, out)
 end
 
 -- Circles whose size follows the band level.
@@ -321,7 +541,17 @@ function S.bubbles(ctx)
       -- Edge bubbles slide inward so they never leave the canvas.
       local cx = math.clamp(x0 + (i - 1) * (bw + gap) + bw / 2, d / 2, W - d / 2)
       local cy = if center then H / 2 elseif top then d / 2 else H - d / 2
-      box(out, kb[i], cx, cy, d, d, cols[if lv then (v * LV + 0.5) // 1 + 1 else i], d / 2)
+      out[#out + 1] = {
+        kind = "box",
+        key = kb[i],
+        cx = cx,
+        cy = cy,
+        w = d,
+        h = d,
+        fill = cols[if lv then (v * LV + 0.5) // 1 + 1 else i],
+        radius = d / 2,
+        glow = true,
+      }
     end
   end
 end
@@ -454,16 +684,24 @@ end
 --    plot, so the graph is made taller by that much and clipped: the plot
 --    range lands exactly on the baseline and the far edge.
 --  * It hides the first three samples and ends on an extrapolated lead sample
---    (scroll protocol), so three leading samples are prepended and the graph
---    is one interval wider than the visible area (the extra part is clipped):
---    band 1 sits on the left edge and the last band on the right edge.
---  * It takes one color. Color modes cut it into scissor-clipped slices -
---    columns for gradient / rainbow / alternate, rows for "by level" - each a
---    copy of the graph in its own color. Scissor clips are whole pixels, so
---    slices tile without seams, and there are enough of them that neighbouring
---    colors differ by less than one 8-bit step on screen.
+--    (scroll protocol), so three leading samples are prepended: band 1 sits
+--    on the left edge and the last band on the right edge.
+--  * It takes one color. Color modes cut it into scissor-clipped tiles, each
+--    a copy of the graph in its own color: columns for gradient / rainbow /
+--    alternate, rows for "by level", with enough of them that neighbouring
+--    colors differ by less than one 8-bit step on screen. Scissor clips are
+--    whole pixels, so tiles meet without seams.
+--  * Its shader evaluates the curve about 20 times per pixel and series, over
+--    the whole node. So the curve is cut into vertical strips and each
+--    strip's tiles cover only the height its stretch of curve reaches (line
+--    width and anti-aliasing included): the empty rest is never shaded. Each
+--    strip's graph also gets only the samples that stretch reads (the cubic
+--    reads two neighbours each side), placed so it draws exactly the curve
+--    the full graph would.
 local GRAPH_EPS = 0.0001
 local GRAPH_AA = 0.5 -- the graph shader's anti-aliasing width (px)
+local H10 = 4 / 27 -- max of the Hermite basis h10 on [0, 1] (tangent overshoot)
+local SOLID_STRIPS = 8
 
 -- The shader's padding (fraction of the graph height) for a graph gPx tall
 -- with a line lwPx wide.
@@ -482,17 +720,696 @@ function S.graphFit(gh, lw, pxPerUnit)
   return gh / (1 - 2 * pad), pad
 end
 
+-- Value bounds of every segment of graph series `o` and, if given, `p`
+-- (o[1..3] hidden leading samples, o[4] = band 1 .. o[n + 3] = band n) as
+-- the shader draws them: a cubic Hermite with tangents (y2 - y0) / 4, ending
+-- on the host's extrapolated lead. Segment s spans bands s .. s + 1; lo / hi
+-- bound both series, do[s] / dp[s] bound each one's |dy/du| (u = band index).
+-- Strip k (of `strips`, each `su` segments wide) gets the union of its
+-- segments' bounds in stripLo[k] / stripHi[k], in the same pass.
+local function segmentBounds(o, p, n, lo, hi, do_, dp, su, strips, stripLo, stripHi)
+  local lastO = o[n + 3]
+  local leadO = math.clamp(lastO + (lastO - o[n + 2]) * 0.5, 0, 1)
+  local leadP = 0
+  if p ~= nil then
+    local lastP = p[n + 3]
+    leadP = math.clamp(lastP + (lastP - p[n + 2]) * 0.5, 0, 1)
+  end
+  -- Unrolled 4x (the host meters loop back-edges); same body in each block.
+  local last = n - 1
+  local last4 = last - last % 4
+  for s0 = 0, last4 - 1, 4 do
+    do
+      local s = s0 + 1
+      local y0, y1, y2 = o[s + 2], o[s + 3], o[s + 4]
+      local y3 = if s < n - 1 then o[s + 5] else leadO
+      local m1, m2 = abs(y2 - y0) * 0.25, abs(y3 - y1) * 0.25
+      local over = (m1 + m2) * H10
+      local a, b = y1, y2
+      if a > b then
+        a, b = b, a
+      end
+      do_[s] = 1.5 * (b - a) + m1 + m2
+      a -= over
+      b += over
+      if p ~= nil then
+        y0, y1, y2 = p[s + 2], p[s + 3], p[s + 4]
+        y3 = if s < n - 1 then p[s + 5] else leadP
+        m1, m2 = abs(y2 - y0) * 0.25, abs(y3 - y1) * 0.25
+        over = (m1 + m2) * H10
+        local c, d = y1, y2
+        if c > d then
+          c, d = d, c
+        end
+        dp[s] = 1.5 * (d - c) + m1 + m2
+        c -= over
+        d += over
+        if c < a then
+          a = c
+        end
+        if d > b then
+          b = d
+        end
+      end
+      lo[s], hi[s] = a, b
+      -- Strips overlapping segment s (u = s - 1 .. s): usually one or two.
+      local k1 = floor((s - 1) / su) + 1
+      local k2 = math.ceil(s / su)
+      if k2 > strips then
+        k2 = strips
+      end
+      if a < stripLo[k1] then
+        stripLo[k1] = a
+      end
+      if b > stripHi[k1] then
+        stripHi[k1] = b
+      end
+      if k2 > k1 then
+        if a < stripLo[k2] then
+          stripLo[k2] = a
+        end
+        if b > stripHi[k2] then
+          stripHi[k2] = b
+        end
+        for k = k1 + 1, k2 - 1 do -- strips narrower than a segment
+          if a < stripLo[k] then
+            stripLo[k] = a
+          end
+          if b > stripHi[k] then
+            stripHi[k] = b
+          end
+        end
+      end
+    end
+    do
+      local s = s0 + 2
+      local y0, y1, y2 = o[s + 2], o[s + 3], o[s + 4]
+      local y3 = if s < n - 1 then o[s + 5] else leadO
+      local m1, m2 = abs(y2 - y0) * 0.25, abs(y3 - y1) * 0.25
+      local over = (m1 + m2) * H10
+      local a, b = y1, y2
+      if a > b then
+        a, b = b, a
+      end
+      do_[s] = 1.5 * (b - a) + m1 + m2
+      a -= over
+      b += over
+      if p ~= nil then
+        y0, y1, y2 = p[s + 2], p[s + 3], p[s + 4]
+        y3 = if s < n - 1 then p[s + 5] else leadP
+        m1, m2 = abs(y2 - y0) * 0.25, abs(y3 - y1) * 0.25
+        over = (m1 + m2) * H10
+        local c, d = y1, y2
+        if c > d then
+          c, d = d, c
+        end
+        dp[s] = 1.5 * (d - c) + m1 + m2
+        c -= over
+        d += over
+        if c < a then
+          a = c
+        end
+        if d > b then
+          b = d
+        end
+      end
+      lo[s], hi[s] = a, b
+      -- Strips overlapping segment s (u = s - 1 .. s): usually one or two.
+      local k1 = floor((s - 1) / su) + 1
+      local k2 = math.ceil(s / su)
+      if k2 > strips then
+        k2 = strips
+      end
+      if a < stripLo[k1] then
+        stripLo[k1] = a
+      end
+      if b > stripHi[k1] then
+        stripHi[k1] = b
+      end
+      if k2 > k1 then
+        if a < stripLo[k2] then
+          stripLo[k2] = a
+        end
+        if b > stripHi[k2] then
+          stripHi[k2] = b
+        end
+        for k = k1 + 1, k2 - 1 do -- strips narrower than a segment
+          if a < stripLo[k] then
+            stripLo[k] = a
+          end
+          if b > stripHi[k] then
+            stripHi[k] = b
+          end
+        end
+      end
+    end
+    do
+      local s = s0 + 3
+      local y0, y1, y2 = o[s + 2], o[s + 3], o[s + 4]
+      local y3 = if s < n - 1 then o[s + 5] else leadO
+      local m1, m2 = abs(y2 - y0) * 0.25, abs(y3 - y1) * 0.25
+      local over = (m1 + m2) * H10
+      local a, b = y1, y2
+      if a > b then
+        a, b = b, a
+      end
+      do_[s] = 1.5 * (b - a) + m1 + m2
+      a -= over
+      b += over
+      if p ~= nil then
+        y0, y1, y2 = p[s + 2], p[s + 3], p[s + 4]
+        y3 = if s < n - 1 then p[s + 5] else leadP
+        m1, m2 = abs(y2 - y0) * 0.25, abs(y3 - y1) * 0.25
+        over = (m1 + m2) * H10
+        local c, d = y1, y2
+        if c > d then
+          c, d = d, c
+        end
+        dp[s] = 1.5 * (d - c) + m1 + m2
+        c -= over
+        d += over
+        if c < a then
+          a = c
+        end
+        if d > b then
+          b = d
+        end
+      end
+      lo[s], hi[s] = a, b
+      -- Strips overlapping segment s (u = s - 1 .. s): usually one or two.
+      local k1 = floor((s - 1) / su) + 1
+      local k2 = math.ceil(s / su)
+      if k2 > strips then
+        k2 = strips
+      end
+      if a < stripLo[k1] then
+        stripLo[k1] = a
+      end
+      if b > stripHi[k1] then
+        stripHi[k1] = b
+      end
+      if k2 > k1 then
+        if a < stripLo[k2] then
+          stripLo[k2] = a
+        end
+        if b > stripHi[k2] then
+          stripHi[k2] = b
+        end
+        for k = k1 + 1, k2 - 1 do -- strips narrower than a segment
+          if a < stripLo[k] then
+            stripLo[k] = a
+          end
+          if b > stripHi[k] then
+            stripHi[k] = b
+          end
+        end
+      end
+    end
+    do
+      local s = s0 + 4
+      local y0, y1, y2 = o[s + 2], o[s + 3], o[s + 4]
+      local y3 = if s < n - 1 then o[s + 5] else leadO
+      local m1, m2 = abs(y2 - y0) * 0.25, abs(y3 - y1) * 0.25
+      local over = (m1 + m2) * H10
+      local a, b = y1, y2
+      if a > b then
+        a, b = b, a
+      end
+      do_[s] = 1.5 * (b - a) + m1 + m2
+      a -= over
+      b += over
+      if p ~= nil then
+        y0, y1, y2 = p[s + 2], p[s + 3], p[s + 4]
+        y3 = if s < n - 1 then p[s + 5] else leadP
+        m1, m2 = abs(y2 - y0) * 0.25, abs(y3 - y1) * 0.25
+        over = (m1 + m2) * H10
+        local c, d = y1, y2
+        if c > d then
+          c, d = d, c
+        end
+        dp[s] = 1.5 * (d - c) + m1 + m2
+        c -= over
+        d += over
+        if c < a then
+          a = c
+        end
+        if d > b then
+          b = d
+        end
+      end
+      lo[s], hi[s] = a, b
+      -- Strips overlapping segment s (u = s - 1 .. s): usually one or two.
+      local k1 = floor((s - 1) / su) + 1
+      local k2 = math.ceil(s / su)
+      if k2 > strips then
+        k2 = strips
+      end
+      if a < stripLo[k1] then
+        stripLo[k1] = a
+      end
+      if b > stripHi[k1] then
+        stripHi[k1] = b
+      end
+      if k2 > k1 then
+        if a < stripLo[k2] then
+          stripLo[k2] = a
+        end
+        if b > stripHi[k2] then
+          stripHi[k2] = b
+        end
+        for k = k1 + 1, k2 - 1 do -- strips narrower than a segment
+          if a < stripLo[k] then
+            stripLo[k] = a
+          end
+          if b > stripHi[k] then
+            stripHi[k] = b
+          end
+        end
+      end
+    end
+  end
+  for s = last4 + 1, last do
+    local y0, y1, y2 = o[s + 2], o[s + 3], o[s + 4]
+    local y3 = if s < n - 1 then o[s + 5] else leadO
+    local m1, m2 = abs(y2 - y0) * 0.25, abs(y3 - y1) * 0.25
+    local over = (m1 + m2) * H10
+    local a, b = y1, y2
+    if a > b then
+      a, b = b, a
+    end
+    do_[s] = 1.5 * (b - a) + m1 + m2
+    a -= over
+    b += over
+    if p ~= nil then
+      y0, y1, y2 = p[s + 2], p[s + 3], p[s + 4]
+      y3 = if s < n - 1 then p[s + 5] else leadP
+      m1, m2 = abs(y2 - y0) * 0.25, abs(y3 - y1) * 0.25
+      over = (m1 + m2) * H10
+      local c, d = y1, y2
+      if c > d then
+        c, d = d, c
+      end
+      dp[s] = 1.5 * (d - c) + m1 + m2
+      c -= over
+      d += over
+      if c < a then
+        a = c
+      end
+      if d > b then
+        b = d
+      end
+    end
+    lo[s], hi[s] = a, b
+    -- Strips overlapping segment s (u = s - 1 .. s): usually one or two.
+    local k1 = floor((s - 1) / su) + 1
+    local k2 = math.ceil(s / su)
+    if k1 > strips then
+      k1 = strips
+    end
+    if k2 > strips then
+      k2 = strips
+    end
+    if a < stripLo[k1] then
+      stripLo[k1] = a
+    end
+    if b > stripHi[k1] then
+      stripHi[k1] = b
+    end
+    if k2 > k1 then
+      if a < stripLo[k2] then
+        stripLo[k2] = a
+      end
+      if b > stripHi[k2] then
+        stripHi[k2] = b
+      end
+      for k = k1 + 1, k2 - 1 do -- strips narrower than a segment
+        if a < stripLo[k] then
+          stripLo[k] = a
+        end
+        if b > stripHi[k] then
+          stripHi[k] = b
+        end
+      end
+    end
+  end
+end
+
+-- For "by level" rows: first[r] / last[r] = the first and last segment whose
+-- drawn line (bounds widened by `margin`) reaches color row r of `rows`, or
+-- 0. Row r covers values (r - 1) / rowK .. r / rowK (the top row also takes
+-- the rest up to 1). The curve is continuous, so the rows reached by segments 1 .. s always
+-- form one interval [A, B]; each pass only assigns rows as that interval
+-- grows (any gap is filled, which is merely conservative). Two passes of n
+-- segments plus `rows` assignments, unrolled 4x (the host meters loop
+-- back-edges).
+local function rowExtents(segLo, segHi, n, rows, rowK, margin, filled, first, last)
+  local A, B = rows + 1, 0
+  local count = n - 1 - (1) + 1
+  local c4 = count - count % 4
+  for j0 = 0, c4 - 1, 4 do
+    do
+      local s = 1 + j0 + 0
+      local a = if filled then 1 else floor((segLo[s] - margin) * rowK) + 1
+      local b = math.ceil((segHi[s] + margin) * rowK)
+      if a < 1 then
+        a = 1
+      end
+      if b > rows then
+        b = rows
+      end
+      if a <= b then
+        if A > B then
+          for r = a, b do
+            first[r] = s
+          end
+          A, B = a, b
+        else
+          if a < A then
+            for r = a, A - 1 do
+              first[r] = s
+            end
+            A = a
+          end
+          if b > B then
+            for r = B + 1, b do
+              first[r] = s
+            end
+            B = b
+          end
+        end
+      end
+    end
+    do
+      local s = 1 + j0 + 1
+      local a = if filled then 1 else floor((segLo[s] - margin) * rowK) + 1
+      local b = math.ceil((segHi[s] + margin) * rowK)
+      if a < 1 then
+        a = 1
+      end
+      if b > rows then
+        b = rows
+      end
+      if a <= b then
+        if A > B then
+          for r = a, b do
+            first[r] = s
+          end
+          A, B = a, b
+        else
+          if a < A then
+            for r = a, A - 1 do
+              first[r] = s
+            end
+            A = a
+          end
+          if b > B then
+            for r = B + 1, b do
+              first[r] = s
+            end
+            B = b
+          end
+        end
+      end
+    end
+    do
+      local s = 1 + j0 + 2
+      local a = if filled then 1 else floor((segLo[s] - margin) * rowK) + 1
+      local b = math.ceil((segHi[s] + margin) * rowK)
+      if a < 1 then
+        a = 1
+      end
+      if b > rows then
+        b = rows
+      end
+      if a <= b then
+        if A > B then
+          for r = a, b do
+            first[r] = s
+          end
+          A, B = a, b
+        else
+          if a < A then
+            for r = a, A - 1 do
+              first[r] = s
+            end
+            A = a
+          end
+          if b > B then
+            for r = B + 1, b do
+              first[r] = s
+            end
+            B = b
+          end
+        end
+      end
+    end
+    do
+      local s = 1 + j0 + 3
+      local a = if filled then 1 else floor((segLo[s] - margin) * rowK) + 1
+      local b = math.ceil((segHi[s] + margin) * rowK)
+      if a < 1 then
+        a = 1
+      end
+      if b > rows then
+        b = rows
+      end
+      if a <= b then
+        if A > B then
+          for r = a, b do
+            first[r] = s
+          end
+          A, B = a, b
+        else
+          if a < A then
+            for r = a, A - 1 do
+              first[r] = s
+            end
+            A = a
+          end
+          if b > B then
+            for r = B + 1, b do
+              first[r] = s
+            end
+            B = b
+          end
+        end
+      end
+    end
+  end
+  for s = 1 + c4, n - 1 do
+    local a = if filled then 1 else floor((segLo[s] - margin) * rowK) + 1
+    local b = math.ceil((segHi[s] + margin) * rowK)
+    if a < 1 then
+      a = 1
+    end
+    if b > rows then
+      b = rows
+    end
+    if a <= b then
+      if A > B then
+        for r = a, b do
+          first[r] = s
+        end
+        A, B = a, b
+      else
+        if a < A then
+          for r = a, A - 1 do
+            first[r] = s
+          end
+          A = a
+        end
+        if b > B then
+          for r = B + 1, b do
+            first[r] = s
+          end
+          B = b
+        end
+      end
+    end
+  end
+  A, B = rows + 1, 0
+  do
+    local count = n - 1 - (1) + 1
+    local c4 = count - count % 4
+    for j0 = 0, c4 - 1, 4 do
+      do
+        local s = n - 1 - j0 - 0
+        local a = if filled then 1 else floor((segLo[s] - margin) * rowK) + 1
+        local b = math.ceil((segHi[s] + margin) * rowK)
+        if a < 1 then
+          a = 1
+        end
+        if b > rows then
+          b = rows
+        end
+        if a <= b then
+          if A > B then
+            for r = a, b do
+              last[r] = s
+            end
+            A, B = a, b
+          else
+            if a < A then
+              for r = a, A - 1 do
+                last[r] = s
+              end
+              A = a
+            end
+            if b > B then
+              for r = B + 1, b do
+                last[r] = s
+              end
+              B = b
+            end
+          end
+        end
+      end
+      do
+        local s = n - 1 - j0 - 1
+        local a = if filled then 1 else floor((segLo[s] - margin) * rowK) + 1
+        local b = math.ceil((segHi[s] + margin) * rowK)
+        if a < 1 then
+          a = 1
+        end
+        if b > rows then
+          b = rows
+        end
+        if a <= b then
+          if A > B then
+            for r = a, b do
+              last[r] = s
+            end
+            A, B = a, b
+          else
+            if a < A then
+              for r = a, A - 1 do
+                last[r] = s
+              end
+              A = a
+            end
+            if b > B then
+              for r = B + 1, b do
+                last[r] = s
+              end
+              B = b
+            end
+          end
+        end
+      end
+      do
+        local s = n - 1 - j0 - 2
+        local a = if filled then 1 else floor((segLo[s] - margin) * rowK) + 1
+        local b = math.ceil((segHi[s] + margin) * rowK)
+        if a < 1 then
+          a = 1
+        end
+        if b > rows then
+          b = rows
+        end
+        if a <= b then
+          if A > B then
+            for r = a, b do
+              last[r] = s
+            end
+            A, B = a, b
+          else
+            if a < A then
+              for r = a, A - 1 do
+                last[r] = s
+              end
+              A = a
+            end
+            if b > B then
+              for r = B + 1, b do
+                last[r] = s
+              end
+              B = b
+            end
+          end
+        end
+      end
+      do
+        local s = n - 1 - j0 - 3
+        local a = if filled then 1 else floor((segLo[s] - margin) * rowK) + 1
+        local b = math.ceil((segHi[s] + margin) * rowK)
+        if a < 1 then
+          a = 1
+        end
+        if b > rows then
+          b = rows
+        end
+        if a <= b then
+          if A > B then
+            for r = a, b do
+              last[r] = s
+            end
+            A, B = a, b
+          else
+            if a < A then
+              for r = a, A - 1 do
+                last[r] = s
+              end
+              A = a
+            end
+            if b > B then
+              for r = B + 1, b do
+                last[r] = s
+              end
+              B = b
+            end
+          end
+        end
+      end
+    end
+    for s = n - 1 - c4, 1, -1 do
+      local a = if filled then 1 else floor((segLo[s] - margin) * rowK) + 1
+      local b = math.ceil((segHi[s] + margin) * rowK)
+      if a < 1 then
+        a = 1
+      end
+      if b > rows then
+        b = rows
+      end
+      if a <= b then
+        if A > B then
+          for r = a, b do
+            last[r] = s
+          end
+          A, B = a, b
+        else
+          if a < A then
+            for r = a, A - 1 do
+              last[r] = s
+            end
+            A = a
+          end
+          if b > B then
+            for r = B + 1, b do
+              last[r] = s
+            end
+            B = b
+          end
+        end
+      end
+    end
+  end
+end
+
 local function curveShape(ctx, fillOpacity)
   local c, pal, W, H, out = ctx.c, ctx.pal, ctx.W, ctx.H, ctx.out
   local values, peaks = ctx.values, ctx.peaks
   local n = #values
   local ppu = ctx.pxPerUnit or 1.5
+  -- Screen px per unit for the shaded margins; unknown (bar) assumes 1.
+  local marginPpu = if ctx.pxPerUnitKnown then ppu else min(ppu, 1)
   local lw = max(0.5, c.lineWidth)
-  local color2 = if c.showPeaks then pal:peak(1, 1, 1) else nil
+  local showPeaks = c.showPeaks
+  local color2 = if showPeaks then pal:peak(1, 1, 1) else nil
+  local filled = fillOpacity > 0
   local mode = pal.mode
   local byLevel = mode == "level"
-  -- Slices for under one 8-bit step between neighbours: the colors' spread
-  -- times how strongly they show (fill, or the thin line).
+  -- Color slices for under one 8-bit step between neighbours: the colors'
+  -- spread times how strongly they show (fill, or the thin line).
   local strength = max(fillOpacity, 0.35) * pal.alpha
   local slices = 1
   if mode == "palette" then
@@ -500,12 +1417,55 @@ local function curveShape(ctx, fillOpacity)
   elseif mode ~= "solid" then
     slices = math.clamp(math.ceil(pal:spread() * strength * 1.25), 2, 96)
   end
+  -- Vertical strips: one per color column, else a few for culling.
+  local rows, strips = 1, slices
+  if byLevel then
+    -- One tile per color row reached, clipped to where the curve crosses it
+    -- (graph count is what costs CPU on the host, so no strips x rows grid).
+    rows = slices
+    strips = 1
+  elseif mode == "solid" then
+    strips = SOLID_STRIPS
+  end
+  if n < 2 then
+    strips = 1
+  elseif slices == 1 or byLevel then
+    strips = min(strips, n - 1)
+  end
+  local st = ctx.state
+  local segLo, segHi = st.segLo or {}, st.segHi or {}
+  local dv, dp = st.dv or {}, st.dp or {}
+  st.segLo, st.segHi, st.dv, st.dp = segLo, segHi, dv, dp
 
   local function series(src, reverse, gh)
     local lift = if c.minSize > 0 then min(0.5, c.minSize / gh) else 0
     local o = table.create(n + 3)
-    for i = 1, n do
-      o[i + 3] = lift + src[if reverse then n - i + 1 else i] * (1 - lift)
+    if lift == 0 and not reverse then
+      table.move(src, 1, n, 4, o) -- one call instead of a metered loop
+    else
+      local keep = 1 - lift
+      local n4 = n - n % 4
+      if reverse then
+        for i = 1, n4, 4 do -- unrolled: the host meters loop back-edges
+          o[i + 3] = lift + src[n - i + 1] * keep
+          o[i + 4] = lift + src[n - i] * keep
+          o[i + 5] = lift + src[n - i - 1] * keep
+          o[i + 6] = lift + src[n - i - 2] * keep
+        end
+        for i = n4 + 1, n do
+          o[i + 3] = lift + src[n - i + 1] * keep
+        end
+      else
+        for i = 1, n4, 4 do
+          o[i + 3] = lift + src[i] * keep
+          o[i + 4] = lift + src[i + 1] * keep
+          o[i + 5] = lift + src[i + 2] * keep
+          o[i + 6] = lift + src[i + 3] * keep
+        end
+        for i = n4 + 1, n do
+          o[i + 3] = lift + src[i] * keep
+        end
+      end
     end
     -- Hidden leading samples: a linear continuation, for the left tangent.
     local lead = math.clamp(2 * o[4] - (o[5] or o[4]), 0, 1)
@@ -515,77 +1475,287 @@ local function curveShape(ctx, fillOpacity)
 
   local function half(prefix, gcx, gcy, gw, gh, flipped)
     local vals = series(values, flipped, gh)
-    local pks = if c.showPeaks then series(peaks, flipped, gh) else nil
-    local G, pad = S.graphFit(gh, lw, ppu)
-    local GW = if n > 1 then gw * n / (n - 1) else gw
-    local keys = KEYS[prefix]
-    for k = 1, slices do
-      local lx, ly, sw, sh, color
-      if slices == 1 then
-        lx, ly, sw, sh = 0, 0, gw, gh
-        color = pal:primary()
-      elseif byLevel then
-        -- Row k counted from the baseline, colored by its level.
-        sh = gh / slices
-        lx, sw, ly = 0, gw, gh - k * sh
-        color = pal:at(1, 1, (k - 0.5) / slices)
-      else
-        sw = gw / slices
-        lx, ly, sh = (k - 1) * sw, 0, gh
-        local idx = if flipped then slices - k + 1 else k -- on-screen order
-        if mode == "palette" then
-          color = pal:at(math.ceil(idx * n / slices), n, 0)
-        else
-          color = pal:at(idx, slices, 0)
+    local pks = if showPeaks then series(peaks, flipped, gh) else nil
+    local fitKey = gh * 1e6 + lw * 1e3 + ppu
+    if st.fitKey ~= fitKey then
+      st.fitKey = fitKey
+      st.fitG, st.fitPad = S.graphFit(gh, lw, ppu)
+    end
+    local G, pad = st.fitG, st.fitPad
+    local spacing = if n > 1 then gw / (n - 1) else gw
+    -- Node keys change whenever a tile's data size could: the host mis-samples
+    -- a graph whose series shrinks, so a key always keeps one size.
+    local reachKey = floor(3 / (spacing * marginPpu) * 1000)
+    local keySig = string.format("%s%s%d_%d_%d", prefix, if pks then "p" else "", n, strips, reachKey)
+    local keys = KEYS[keySig]
+    -- Tiles that meet (rows, strips) are sized in whole screen pixels when
+    -- the scale is known: the host rounds clip edges outwards (floor / ceil),
+    -- so tiles meeting mid-pixel would both paint the shared pixel row and
+    -- leave a bright seam. The half's edges sit on pixels already; the last
+    -- strip / top row takes the remainder.
+    local pxq = if ctx.pxPerUnitKnown then ppu else nil
+    local sw = gw / strips
+    if pxq ~= nil and strips > 1 and floor(gw * pxq / strips) >= 1 then
+      sw = floor(gw * pxq / strips) / pxq
+    end
+    local sh = gh / rows
+    if pxq ~= nil and rows > 1 and floor(gh * pxq / rows) >= 1 then
+      sh = floor(gh * pxq / rows) / pxq
+    end
+    local rowK = gh / sh
+    -- Edges where tiles meet are pulled in by a fiftieth of a pixel, so the
+    -- host's outward rounding can't take a shared pixel row twice when float
+    -- error puts an edge a hair past the pixel boundary.
+    local inset = if pxq ~= nil then 0.02 / pxq else 0
+    -- Strips in band units (u = band index - 1, 0 .. n - 1).
+    local su = if n > 1 then sw / spacing else 1
+    -- The shader reads the curve up to 2 px either side of a pixel.
+    local reach = 3 / (spacing * marginPpu)
+    local margin = (lw * 0.5 + (GRAPH_AA * 2 * 1.42 + 1) / marginPpu) / gh
+    -- Colors from the palette's cached arrays (one call, not one per tile).
+    local cols = nil
+    if byLevel then
+      cols = pal:colors(1)
+    elseif mode == "palette" then
+      cols = pal:colors(n)
+    elseif slices > 1 then
+      cols = pal:colors(strips)
+    end
+    local solidColor = if cols == nil then pal:primary() else nil
+    local dbg = ctx.debug
+    if dbg then
+      dbg[prefix] = {
+        strips = strips,
+        sw = sw,
+        gw = gw,
+        gh = gh,
+        spacing = spacing,
+        vals = vals,
+        pks = pks,
+        lw = lw,
+        ppu = marginPpu,
+        filled = filled,
+      }
+    end
+    local stripLo, stripHi
+    if n > 1 then
+      stripLo, stripHi = table.create(strips, math.huge), table.create(strips, -math.huge)
+      segmentBounds(vals, pks, n, segLo, segHi, dv, dp, su, strips, stripLo, stripHi)
+    end
+    if byLevel and n > 1 then
+      -- Each row's tile spans the segments that reach it, plus the line's
+      -- half width and anti-aliasing sideways.
+      local first, last = table.create(rows, 0), table.create(rows, 0)
+      rowExtents(segLo, segHi, n, rows, rowK, margin, filled, first, last)
+      local mx = lw * 0.5 + 3 / marginPpu
+      for r = 1, rows do
+        local f = first[r]
+        if f == 0 then
+          continue
         end
-      end
-      local lcx, lcy = lx + sw / 2, ly + sh / 2
-      local cx, cy
-      if flipped then
-        cx, cy = gcx + gw / 2 - lcx, gcy + gh / 2 - lcy
-      else
-        cx, cy = gcx - gw / 2 + lcx, gcy - gh / 2 + lcy
-      end
-      out[#out + 1] = {
-        kind = "node",
-        key = keys[k],
-        cx = cx,
-        cy = cy,
-        w = sw,
-        h = sh,
-        rot = if flipped then 180 else 0,
-        node = {
-          type = "column",
-          props = { clip = true, align = "start" },
-          children = {
-            {
-              type = "row",
-              props = { key = "r", width = GRAPH_EPS, height = G, align = "start" },
-              children = {
-                {
-                  type = "graph",
-                  props = {
-                    key = "g",
-                    width = GW,
-                    height = G,
-                    values = vals,
-                    values2 = pks,
-                    color = color,
-                    color2 = color2,
-                    lineWidth = lw,
-                    fillOpacity = fillOpacity,
-                    translateX = -lx,
-                    translateY = -ly - pad * G,
-                    rotation = 0,
-                    scale = 1,
+        local x0 = max(0, (f - 1) * spacing - mx)
+        local x1 = min(gw, last[r] * spacing + mx)
+        local tw = x1 - x0
+        -- The full series: a row's reach changes every frame, and the host
+        -- mis-samples a graph whose data shrinks (it keeps the larger texture
+        -- but indexes it by the new width), so a row tile's data size must
+        -- never change.
+        local kLo, kHi = 0, n + 2
+        local wv, wp = vals, pks
+        local ly = (if r < rows then gh - r * sh else 0) + inset
+        local th = (if r < rows then sh else gh - (rows - 1) * sh) - 2 * inset
+        local lcx, lcy = x0 + tw / 2, ly + th / 2
+        local cx, cy
+        if flipped then
+          cx, cy = gcx + gw / 2 - lcx, gcy + gh / 2 - lcy
+        else
+          cx, cy = gcx - gw / 2 + lcx, gcy - gh / 2 + lcy
+        end
+        out[#out + 1] = {
+          kind = "node",
+          dbg = if dbg then { half = prefix, kLo = kLo, kHi = kHi, x0 = x0, x1 = x1, ly = ly, th = th } else nil,
+          key = keys[r],
+          cx = cx,
+          cy = cy,
+          w = tw,
+          h = th,
+          rot = if flipped then 180 else nil,
+          node = {
+            type = "column",
+            props = { clip = true, align = "start" },
+            children = {
+              {
+                type = "row",
+                props = { width = GRAPH_EPS, height = G, align = "start" },
+                children = {
+                  {
+                    type = "graph",
+                    props = {
+                      width = (kHi - kLo - 2) * spacing,
+                      height = G,
+                      values = wv,
+                      values2 = wp,
+                      color = cols[((r - 0.5) / rows * LV + 0.5) // 1 + 1],
+                      color2 = color2,
+                      lineWidth = lw,
+                      fillOpacity = fillOpacity,
+                      translateX = kLo * spacing - x0,
+                      translateY = -ly - pad * G,
+                    },
+                    children = NO_CHILDREN,
                   },
-                  children = NO_CHILDREN,
                 },
               },
             },
           },
-        },
-      }
+        }
+      end
+      return
+    end
+    -- Windows span at least ~8 segments (or one strip).
+    local perWindow = max(1, math.ceil(8 / su))
+    local winGroup, kLo, kHi, wv, wp = -1, 0, n + 2, vals, pks
+    for k = 1, strips do
+      local lo, hi = 0, 1
+      local ua, ub = (k - 1) * su, if k < strips then k * su else n - 1
+      if n > 1 then
+        local s1 = math.clamp(floor(ua) + 1, 1, n - 1)
+        local s2 = math.clamp(math.ceil(ub), s1, n - 1)
+        lo, hi = stripLo[k], stripHi[k]
+        if s1 > 1 and ua - reach < s1 - 1 then
+          local y, e = vals[s1 + 3], dv[s1 - 1] * reach
+          if y - e < lo then
+            lo = y - e
+          end
+          if y + e > hi then
+            hi = y + e
+          end
+          if pks then
+            local y, e = pks[s1 + 3], dp[s1 - 1] * reach
+            if y - e < lo then
+              lo = y - e
+            end
+            if y + e > hi then
+              hi = y + e
+            end
+          end
+        end
+        if s2 < n - 1 and ub + reach > s2 then
+          local y, e = vals[s2 + 1 + 3], dv[s2 + 1] * reach
+          if y - e < lo then
+            lo = y - e
+          end
+          if y + e > hi then
+            hi = y + e
+          end
+          if pks then
+            local y, e = pks[s2 + 1 + 3], dp[s2 + 1] * reach
+            if y - e < lo then
+              lo = y - e
+            end
+            if y + e > hi then
+              hi = y + e
+            end
+          end
+        end
+        lo = if filled then 0 else max(0, lo - margin)
+        hi = min(1, hi + margin)
+      end
+      if hi <= lo then
+        continue
+      end
+      -- The samples this strip reads: graph texture indices kLo .. kHi
+      -- (0-based; index 3 is band 1). Up to the last band the host appends
+      -- the same extrapolated lead the full graph has. Narrow strips share
+      -- one window per group of `perWindow` strips (fewer copies to make).
+      local g = (k - 1) // perWindow
+      if g ~= winGroup then
+        winGroup = g
+        kLo, kHi = 0, n + 2
+        if n > 1 then
+          local ga = g * perWindow * su
+          local gb = if (g + 1) * perWindow < strips then (g + 1) * perWindow * su else n - 1
+          kLo = max(0, floor(ga - reach + 3) - 3)
+          kHi = min(n + 2, floor(gb + reach + 3) + 2)
+        end
+        wv, wp = vals, pks
+        if kLo > 0 or kHi < n + 2 then
+          wv = table.move(vals, kLo + 1, kHi + 1, 1, table.create(kHi - kLo + 1))
+          if pks then
+            wp = table.move(pks, kLo + 1, kHi + 1, 1, table.create(kHi - kLo + 1))
+          end
+        end
+      end
+      local gx = kLo * spacing -- graph left edge, half-local
+      local gwide = (kHi - kLo - 2) * spacing
+      local lx = (k - 1) * sw + inset
+      local tw = (if k < strips then sw else gw - (k - 1) * sw) - 2 * inset
+      local r1, r2 = 1, 1
+      if byLevel then
+        r1 = math.clamp(floor(lo * rows) + 1, 1, rows)
+        r2 = math.clamp(math.ceil(hi * rows), r1, rows)
+      end
+      for r = r1, r2 do
+        local ly, th, color
+        if byLevel then
+          -- Row r counted from the baseline, colored by its level.
+          ly, th = gh - r * sh, sh
+          color = cols[((r - 0.5) / rows * LV + 0.5) // 1 + 1]
+        else
+          ly, th = (1 - hi) * gh, (hi - lo) * gh
+          if cols == nil then
+            color = solidColor
+          else
+            local idx = if flipped then strips - k + 1 else k -- on-screen order
+            color = cols[if mode == "palette" then math.ceil(idx * n / strips) else idx]
+          end
+        end
+        local lcx, lcy = lx + tw / 2, ly + th / 2
+        local cx, cy
+        if flipped then
+          cx, cy = gcx + gw / 2 - lcx, gcy + gh / 2 - lcy
+        else
+          cx, cy = gcx - gw / 2 + lcx, gcy - gh / 2 + lcy
+        end
+        out[#out + 1] = {
+          kind = "node",
+          dbg = if dbg then { half = prefix, kLo = kLo, kHi = kHi, x0 = lx, x1 = lx + tw, ly = ly, th = th } else nil,
+          key = keys[(k - 1) * (rows + 1) + r],
+          cx = cx,
+          cy = cy,
+          w = tw,
+          h = th,
+          rot = if flipped then 180 else nil,
+          node = {
+            type = "column",
+            props = { clip = true, align = "start" },
+            children = {
+              {
+                type = "row",
+                props = { width = GRAPH_EPS, height = G, align = "start" },
+                children = {
+                  {
+                    type = "graph",
+                    props = {
+                      width = gwide,
+                      height = G,
+                      values = wv,
+                      values2 = wp,
+                      color = color,
+                      color2 = color2,
+                      lineWidth = lw,
+                      fillOpacity = fillOpacity,
+                      translateX = gx - lx,
+                      translateY = -ly - pad * G,
+                    },
+                    children = NO_CHILDREN,
+                  },
+                },
+              },
+            },
+          },
+        }
+      end
     end
   end
 
@@ -660,6 +1830,29 @@ end
 
 local BLOCK_CHARS = { "▁", "▂", "▃", "▄", "▅", "▆", "▇", "█" }
 
+-- textMaps(rows, base)[r][q + 1]: the glyph row r (1 = baseline) shows for
+-- a band q eighths of a row tall. Built once per row count.
+local TEXT_MAPS = {}
+textMaps = function(rows: number, baseChar: string)
+  local key = rows .. baseChar
+  local maps = TEXT_MAPS[key]
+  if maps == nil then
+    maps = table.create(rows)
+    for r = 1, rows do
+      local map = table.create(rows * 8 + 1)
+      for q = 0, rows * 8 do
+        local fill = q - (r - 1) * 8
+        map[q + 1] = if fill <= 0
+          then (if r == 1 then baseChar else " ")
+          else BLOCK_CHARS[if fill > 8 then 8 else fill]
+      end
+      maps[r] = map
+    end
+    TEXT_MAPS[key] = maps
+  end
+  return maps
+end
+
 -- Terminal-style bars from Unicode block elements (▁▂▃▄▅▆▇█).
 function S.text(ctx)
   local c, pal, n, W, H, out = ctx.c, ctx.pal, ctx.n, ctx.W, ctx.H, ctx.out
@@ -668,21 +1861,31 @@ function S.text(ctx)
   local h = if center then H / 2 else H
   local fs, rows = textLayout(W, h, n, max(1, c.textRows))
   local baseChar = if c.minSize > 0 then BLOCK_CHARS[1] else " "
+  local maps = textMaps(rows, baseChar)
+  local maxQ = rows * 8
+  local qs = table.create(n + 7, 1)
+  -- Loops are unrolled: the host meters every loop back-edge (~0.4 us each),
+  -- and this shape writes rows x bands glyphs per frame.
   local function build(reverse)
+    for idx = 1, n do
+      local q = floor(values[if reverse then n - idx + 1 else idx] * maxQ + 0.5)
+      qs[idx] = (if q < 0 then 0 elseif q > maxQ then maxQ else q) + 1
+    end
     local lines = table.create(rows)
-    local chars = table.create(n)
+    local chars = table.create(n + 7)
     for r = rows, 1, -1 do
-      local lo = (r - 1) * 8
-      for idx = 1, n do
-        local v = values[if reverse then n - idx + 1 else idx]
-        local fill = floor(v * rows * 8 - lo + 0.5)
-        if fill <= 0 then
-          chars[idx] = if r == 1 then baseChar else " "
-        else
-          chars[idx] = BLOCK_CHARS[if fill > 8 then 8 else fill]
-        end
+      local map = maps[r]
+      for idx = 1, n, 8 do
+        chars[idx] = map[qs[idx]]
+        chars[idx + 1] = map[qs[idx + 1]]
+        chars[idx + 2] = map[qs[idx + 2]]
+        chars[idx + 3] = map[qs[idx + 3]]
+        chars[idx + 4] = map[qs[idx + 4]]
+        chars[idx + 5] = map[qs[idx + 5]]
+        chars[idx + 6] = map[qs[idx + 6]]
+        chars[idx + 7] = map[qs[idx + 7]]
       end
-      lines[#lines + 1] = table.concat(chars)
+      lines[rows - r + 1] = table.concat(chars, "", 1, n)
     end
     return table.concat(lines, "\n")
   end
@@ -825,15 +2028,16 @@ function S.spectrogram(ctx)
   local empty = if pal.trackAlpha > 0 then pal:colors(n, pal.trackAlpha) else nil
   local newestAtTop = c.baseline == "top"
   local kc, kr = KEYS.c, KEYS.r
-  local rowsNodes = table.create(rowsMax)
-  for r = 1, rowsMax do
-    local snap = st.rows[if newestAtTop then r else rowsMax - r + 1]
+  -- A snapshot's cells are built once, when it scrolls in, and reused while
+  -- it scrolls down (rows keep positional keys, so the host updates them in
+  -- place). Only a change of size or colors rebuilds them all.
+  local function cellsFor(snap)
     local cells = table.create(n)
     for i = 1, n do
       local q = if snap then snap[i] or 0 else 0
       local fill, op
       if q <= 0 then
-        fill = if empty then empty[if lv then 1 else i] else CLEAR
+        fill = if empty then empty[if lv then 1 else i] else nil
         op = 1
       else
         fill = cols[if lv then q * (LV // 24) + 1 else i]
@@ -844,6 +2048,32 @@ function S.spectrogram(ctx)
         props = { key = kc[i], width = bw, height = rh, fill = fill, radius = radius, opacity = op },
         children = NO_CHILDREN,
       }
+    end
+    return cells
+  end
+  if st.cellW ~= bw or st.cellH ~= rh or st.cellR ~= radius or st.cellCols ~= cols or st.cellEmpty ~= empty then
+    st.cellW, st.cellH, st.cellR, st.cellCols, st.cellEmpty = bw, rh, radius, cols, empty
+    for _, snap in ipairs(st.rows) do
+      snap.cells = nil
+    end
+    st.emptyCells = nil
+  end
+  local rowsNodes = table.create(rowsMax)
+  for r = 1, rowsMax do
+    local snap = st.rows[if newestAtTop then r else rowsMax - r + 1]
+    local cells
+    if snap ~= nil then
+      cells = snap.cells
+      if cells == nil then
+        cells = cellsFor(snap)
+        snap.cells = cells
+      end
+    else
+      cells = st.emptyCells
+      if cells == nil then
+        cells = cellsFor(nil)
+        st.emptyCells = cells
+      end
     end
     rowsNodes[r] = { type = "row", props = { key = kr[r], gap = gap, align = "start" }, children = cells }
   end
@@ -909,7 +2139,17 @@ function S.meter(ctx)
           fill = if lv then tracks[q] else tracks[row]
         end
         if fill ~= nil then
-          box(out, km[s], (s - 1) * (segW + sgap) + segW / 2, cy, segW, rh, fill, r, 0, 1, pos <= lit)
+          out[#out + 1] = {
+            kind = "box",
+            key = km[s],
+            cx = (s - 1) * (segW + sgap) + segW / 2,
+            cy = cy,
+            w = segW,
+            h = rh,
+            fill = fill,
+            radius = r,
+            glow = (pos <= lit) ~= false,
+          }
         end
       end
     else
@@ -918,10 +2158,30 @@ function S.meter(ctx)
       local minS = min(c.minSize, span)
       local L = minS + v * (span - minS)
       if tracks ~= nil then
-        box(out, km[0], W / 2, cy, W, rh, tracks[if lv then LV1 else row], round * min(W, rh), 0, 1, false)
+        out[#out + 1] = {
+          kind = "box",
+          key = km[0],
+          cx = W / 2,
+          cy = cy,
+          w = W,
+          h = rh,
+          fill = tracks[if lv then LV1 else row],
+          radius = round * min(W, rh),
+          glow = false,
+        }
       end
       local cx = if base == "bottom" then L / 2 elseif base == "top" then W - L / 2 else W / 2
-      box(out, km[1], cx, cy, L, rh, cols[if lv then (v * LV + 0.5) // 1 + 1 else row], round * min(L, rh))
+      out[#out + 1] = {
+        kind = "box",
+        key = km[1],
+        cx = cx,
+        cy = cy,
+        w = L,
+        h = rh,
+        fill = cols[if lv then (v * LV + 0.5) // 1 + 1 else row],
+        radius = round * min(L, rh),
+        glow = true,
+      }
       if room > 0 then
         local pl = minS + pv * (span - minS)
         local pt = c.peakThickness
@@ -929,7 +2189,17 @@ function S.meter(ctx)
         if base == "center" then
           pt = min(pt, W)
         end
-        box(out, km[2], math.clamp(px, pt / 2, W - pt / 2), cy, pt, rh, peakCol or cols[if lv then LV1 else row], 0)
+        out[#out + 1] = {
+          kind = "box",
+          key = km[2],
+          cx = math.clamp(px, pt / 2, W - pt / 2),
+          cy = cy,
+          w = pt,
+          h = rh,
+          fill = peakCol or cols[if lv then LV1 else row],
+          radius = 0,
+          glow = true,
+        }
       end
     end
   end
@@ -1022,20 +2292,64 @@ function S.radial(ctx)
     if tracks ~= nil then
       local tl = if dir == "both" then 2 * Lmax else Lmax
       local tr = if dir == "both" then r0 elseif dir == "in" then r0 - Lmax / 2 else r0 + Lmax / 2
-      box(out, kt[i], cx + tr * s, cy - tr * co, bw, tl, tracks[if lv then LV1 else i], round * min(bw, tl), th, 1, false)
+      out[#out + 1] = {
+        kind = "box",
+        key = kt[i],
+        cx = cx + tr * s,
+        cy = cy - tr * co,
+        w = bw,
+        h = tl,
+        fill = tracks[if lv then LV1 else i],
+        radius = round * min(bw, tl),
+        rot = th,
+        glow = false,
+      }
     end
-    box(out, kb[i], cx + rc * s, cy - rc * co, bw, len, cols[if lv then (v * LV + 0.5) // 1 + 1 else i], round * min(bw, len), th)
+    out[#out + 1] = {
+      kind = "box",
+      key = kb[i],
+      cx = cx + rc * s,
+      cy = cy - rc * co,
+      w = bw,
+      h = len,
+      fill = cols[if lv then (v * LV + 0.5) // 1 + 1 else i],
+      radius = round * min(bw, len),
+      rot = th,
+      glow = true,
+    }
     if room > 0 then
       local pv = peaks[i]
       local pl = minS + pv * (Lmax - minS)
       local col = peakCol or cols[if lv then (pv * LV + 0.5) // 1 + 1 else i]
       if dir ~= "in" then
         local rp = r0 + pl + 1 + pt / 2
-        box(out, kp[i], cx + rp * s, cy - rp * co, bw, pt, col, pr, th)
+        out[#out + 1] = {
+          kind = "box",
+          key = kp[i],
+          cx = cx + rp * s,
+          cy = cy - rp * co,
+          w = bw,
+          h = pt,
+          fill = col,
+          radius = pr,
+          rot = th,
+          glow = true,
+        }
       end
       if dir ~= "out" then
         local rp = r0 - pl - 1 - pt / 2
-        box(out, kq[i], cx + rp * s, cy - rp * co, bw, pt, col, pr, th)
+        out[#out + 1] = {
+          kind = "box",
+          key = kq[i],
+          cx = cx + rp * s,
+          cy = cy - rp * co,
+          w = bw,
+          h = pt,
+          fill = col,
+          radius = pr,
+          rot = th,
+          glow = true,
+        }
       end
     end
   end
@@ -1072,16 +2386,46 @@ function S.radial_dots(ctx)
     local col = cols[if lv then (v * LV + 0.5) // 1 + 1 else i]
     if dir ~= "in" then
       local r = r0 + d / 2 + v * travel
-      box(out, ka[i], cx + r * s, cy - r * co, d, d, col, d / 2)
+      out[#out + 1] = {
+        kind = "box",
+        key = ka[i],
+        cx = cx + r * s,
+        cy = cy - r * co,
+        w = d,
+        h = d,
+        fill = col,
+        radius = d / 2,
+        glow = true,
+      }
     end
     if dir ~= "out" then
       local r = r0 - d / 2 - v * travel
-      box(out, kb[i], cx + r * s, cy - r * co, d, d, col, d / 2)
+      out[#out + 1] = {
+        kind = "box",
+        key = kb[i],
+        cx = cx + r * s,
+        cy = cy - r * co,
+        w = d,
+        h = d,
+        fill = col,
+        radius = d / 2,
+        glow = true,
+      }
     end
     if room > 0 then
       local pv = peaks[i]
       local r = if dir == "in" then r0 - d - 1 - pd / 2 - pv * travel else r0 + d + 1 + pd / 2 + pv * travel
-      box(out, kp[i], cx + r * s, cy - r * co, pd, pd, peakCol or cols[if lv then (pv * LV + 0.5) // 1 + 1 else i], pd / 2)
+      out[#out + 1] = {
+        kind = "box",
+        key = kp[i],
+        cx = cx + r * s,
+        cy = cy - r * co,
+        w = pd,
+        h = pd,
+        fill = peakCol or cols[if lv then (pv * LV + 0.5) // 1 + 1 else i],
+        radius = pd / 2,
+        glow = true,
+      }
     end
   end
 end
@@ -1161,17 +2505,18 @@ function S.circle_wave(ctx)
       local dx, dy = xs[j] - xs[i], ys[j] - ys[i]
       local len = sqrt(dx * dx + dy * dy)
       local v = (vals[i] + vals[j]) / 2
-      box(
-        out,
-        keys[i],
-        (xs[i] + xs[j]) / 2,
-        (ys[i] + ys[j]) / 2,
-        len + lw * 0.9,
-        lw,
-        cols[if lv then (v * LV + 0.5) // 1 + 1 else i],
-        lw / 2,
-        math.atan2(dy, dx) / DEG
-      )
+      out[#out + 1] = {
+        kind = "box",
+        key = keys[i],
+        cx = (xs[i] + xs[j]) / 2,
+        cy = (ys[i] + ys[j]) / 2,
+        w = len + lw * 0.9,
+        h = lw,
+        fill = cols[if lv then (v * LV + 0.5) // 1 + 1 else i],
+        radius = lw / 2,
+        rot = math.atan2(dy, dx) / DEG,
+        glow = true,
+      }
     end
   end
 end
@@ -1198,20 +2543,31 @@ function S.bloom(ctx)
     local th = a0 + (i - 1) * step
     local L = minS + v * (Lmax - minS)
     local rc = r0 + L / 2
-    box(
-      out,
-      kp[i],
-      cx + rc * sin(th * DEG),
-      cy - rc * cos(th * DEG),
-      pw,
-      L,
-      cols[if lv then (v * LV + 0.5) // 1 + 1 else i],
-      pw / 2,
-      th
-    )
+    out[#out + 1] = {
+      kind = "box",
+      key = kp[i],
+      cx = cx + rc * sin(th * DEG),
+      cy = cy - rc * cos(th * DEG),
+      w = pw,
+      h = L,
+      fill = cols[if lv then (v * LV + 0.5) // 1 + 1 else i],
+      radius = pw / 2,
+      rot = th,
+      glow = true,
+    }
   end
   local core = r0 * 2.6
-  box(out, "core", cx, cy, core, core, pal:secondary(), core / 2)
+  out[#out + 1] = {
+    kind = "box",
+    key = "core",
+    cx = cx,
+    cy = cy,
+    w = core,
+    h = core,
+    fill = pal:secondary(),
+    radius = core / 2,
+    glow = true,
+  }
 end
 
 -- Bars along an Archimedean spiral, widening as they wind outward.
@@ -1243,11 +2599,33 @@ function S.spiral(ctx)
     local bw = if fixedW > 0 then min(fixedW, bwMax) else math.clamp(perBar * max(r, 2) - spacing, 1, bwMax)
     local L = minS + v * (Lmax - minS)
     local rc = r + L / 2
-    box(out, kb[i], cx + rc * s, cy - rc * co, bw, L, cols[if lv then (v * LV + 0.5) // 1 + 1 else i], round * min(bw, L), th)
+    out[#out + 1] = {
+      kind = "box",
+      key = kb[i],
+      cx = cx + rc * s,
+      cy = cy - rc * co,
+      w = bw,
+      h = L,
+      fill = cols[if lv then (v * LV + 0.5) // 1 + 1 else i],
+      radius = round * min(bw, L),
+      rot = th,
+      glow = true,
+    }
     if room > 0 then
       local pv = peaks[i]
       local rp = r + minS + pv * (Lmax - minS) + 1 + pt / 2
-      box(out, kp[i], cx + rp * s, cy - rp * co, bw, pt, peakCol or cols[if lv then (pv * LV + 0.5) // 1 + 1 else i], 0, th)
+      out[#out + 1] = {
+        kind = "box",
+        key = kp[i],
+        cx = cx + rp * s,
+        cy = cy - rp * co,
+        w = bw,
+        h = pt,
+        fill = peakCol or cols[if lv then (pv * LV + 0.5) // 1 + 1 else i],
+        radius = 0,
+        rot = th,
+        glow = true,
+      }
     end
   end
 end

@@ -115,6 +115,37 @@ function M.cases()
       end
     end
   end
+  -- Curves in every color mode (tiling differs per mode), thin and thick
+  -- lines, at the desktop's real px / unit and at an unknown one.
+  for _, shape in ipairs({ "wave", "area" }) do
+    for _, mode in ipairs({ "level", "solid", "gradient", "palette", "rainbow" }) do
+      for _, base in ipairs({ "bottom", "center", "top" }) do
+        for _, lw in ipairs({ 0.5, 6 }) do
+          for _, bands in ipairs({ 128, 7 }) do
+            table.insert(list, {
+              shape = shape,
+              bands = bands,
+              fill = "demo",
+              w = 600,
+              h = 200,
+              vertical = base == "top" and lw > 1,
+              view = { 711.11, 200 },
+              ppu = if bands == 128 then 7.2 else nil,
+              over = {
+                color_mode = mode,
+                baseline = base,
+                line_width = lw,
+                show_peaks = true,
+                use_color_3 = true,
+                opacity = 0.5,
+                fill_opacity = 0.25,
+              },
+            })
+          end
+        end
+      end
+    end
+  end
   return list
 end
 
@@ -179,7 +210,27 @@ local function check(tree, X0, Y0, X1, Y1, fail)
       end
       return
     end
-    for _, child in ipairs(node.children or {}) do
+    -- Placement relies on every child starting at the container's origin
+    -- (zero-height slots, or runs whose gap cancels their common size).
+    local kids = node.children or {}
+    if #kids > 1 and (node.type == "row" or node.type == "column") then
+      local mainKey = if node.type == "row" then "width" else "height"
+      local gap = p.gap or 0
+      local cursor = 0
+      for i, child in ipairs(kids) do
+        if math.abs(cursor) > 0.05 then
+          fail(string.format("%s child %d laid out at %.4f, not the origin", tostring(p.key), i, cursor))
+          break
+        end
+        local size = (child.props or {})[mainKey]
+        if size == nil then
+          cursor = math.huge
+        else
+          cursor += size + gap
+        end
+      end
+    end
+    for _, child in ipairs(kids) do
       walk(child)
     end
   end
@@ -207,6 +258,9 @@ function M.run(case)
   if case.view ~= nil then
     e:setViewport(case.view[1], case.view[2])
   end
+  if case.ppu ~= nil then
+    e.pxPerUnit = case.ppu
+  end
   local dsp = e.dsp
   if case.fill == "demo" then
     local raw = Dsp.demo(48, 1.37)
@@ -221,6 +275,7 @@ function M.run(case)
     dsp:arrange()
   end
   -- Two renders so history-based shapes (spectrogram) fill a row or two.
+  e.ctx.debug = {}
   e:render(0.5)
   local tree = e:render(1.0) or e.lastTree
   local msgs = {}
@@ -235,35 +290,155 @@ function M.run(case)
   end
   local x0, y0, x1, y1 = areaOf(e)
   local n = check(tree, x0, y0, x1, y1, fail)
-  -- Area / wave slices: each clipped graph's plot range must be exactly the
-  -- visible height (the shader's padding compensated), start at the slice's
-  -- edge, be one band interval wider than the canvas (so the last band sits
-  -- on the edge) and show band 1 as its first visible sample.
+  -- Area / wave tiles. Each clipped graph's plot range must be exactly the
+  -- visible height (the shader's padding compensated). Each strip's graph
+  -- must hold exactly the samples it reads, placed so it draws the full
+  -- curve, and the strip's tiles must cover every pixel the shader can
+  -- paint there: the line (both series) with its anti-aliasing, and the fill
+  -- below it. The curve is evaluated here the way the shader does.
   if case.shape == "area" or case.shape == "wave" then
     local ctx = e.ctx
-    local gh = if e.c.baseline == "center" then ctx.H / 2 else ctx.H
+    local gh0 = if e.c.baseline == "center" then ctx.H / 2 else ctx.H
     local lw = math.max(0.5, e.c.lineWidth)
     local nb = e.dsp.n
+    local tiles = {}
     for _, p in ipairs(ctx.out) do
       local col = p.node
-      if p.kind == "node" and col ~= nil and col.props.clip then
+      local d = p.dbg
+      if p.kind == "node" and col ~= nil and col.props.clip and d ~= nil then
+        local hd = ctx.debug[d.half]
         local g = col.children[1].children[1].props
         local pad = Shapes.graphPad(g.height * ctx.pxPerUnit, lw * ctx.pxPerUnit)
         local plot = g.height * (1 - 2 * pad)
-        if math.abs(plot - gh) > 0.05 then
-          fail(string.format("%s: plot range %.2f, visible %.2f", p.key, plot, gh))
+        if math.abs(plot - gh0) > 0.05 then
+          fail(string.format("%s: plot range %.2f, visible %.2f", p.key, plot, gh0))
           break
         end
-        local top = g.translateY + pad * g.height -- = -(slice offset), <= 0
-        if top > 0.01 or top < -gh - 0.01 then
-          fail(string.format("%s: plot top at %.2f", p.key, top))
+        local top = g.translateY + pad * g.height -- = -(tile offset), <= 0
+        if math.abs(top + d.ly) > 0.01 or d.ly < -0.01 or d.ly + d.th > gh0 + 0.01 then
+          fail(string.format("%s: plot top at %.2f for a tile at %.2f..%.2f", p.key, top, d.ly, d.ly + d.th))
           break
         end
-        local expectW = if nb > 1 then ctx.W * nb / (nb - 1) else ctx.W
-        if math.abs(g.width - expectW) > 0.05 or #g.values ~= nb + 3 then
-          fail(string.format("%s: graph width %.2f (want %.2f), %d samples", p.key, g.width, expectW, #g.values))
+        local m = d.kHi - d.kLo + 1
+        local sp = hd.spacing
+        if
+          #g.values ~= m
+          or math.abs(g.width - (m - 3) * sp) > 0.01
+          or math.abs(g.translateX - (d.kLo * sp - d.x0)) > 0.01
+          or math.abs(p.h - d.th) > 0.01
+        then
+          fail(string.format("%s: window %d..%d: %d samples, graph width %.2f at %.2f", p.key, d.kLo, d.kHi, #g.values, g.width, g.translateX))
           break
         end
+        for i = 1, m do
+          if g.values[i] ~= hd.vals[d.kLo + i] or (hd.pks ~= nil and g.values2[i] ~= hd.pks[d.kLo + i]) then
+            fail(string.format("%s: sample %d differs from the full series", p.key, i))
+            break
+          end
+        end
+        if math.abs(p.w - (d.x1 - d.x0)) > 0.01 then
+          fail(string.format("%s: tile width %.2f for x %.2f..%.2f", p.key, p.w, d.x0, d.x1))
+          break
+        end
+        local list = tiles[d.half]
+        if list == nil then
+          list = {}
+          tiles[d.half] = list
+        end
+        table.insert(list, d)
+      end
+    end
+    -- The shader's curve: cubic Hermite over the texture (series + lead),
+    -- fetches clamped to it. `tex` is 1-based (tex[1] = texture index 0).
+    local function texOf(o)
+      local count = nb + 3
+      local tex = table.move(o, 1, count, 1, table.create(count + 1))
+      tex[count + 1] = math.clamp(o[count] + (o[count] - o[count - 1]) * 0.5, 0, 1)
+      return tex
+    end
+    local function curveAt(tex, di)
+      local top = nb + 4
+      local i = math.floor(di)
+      local tt = di - i
+      local y0 = tex[math.clamp(i, 1, top)]
+      local y1 = tex[math.clamp(i + 1, 1, top)]
+      local y2 = tex[math.clamp(i + 2, 1, top)]
+      local y3 = tex[math.clamp(i + 3, 1, top)]
+      local m1, m2 = (y2 - y0) * 0.25, (y3 - y1) * 0.25
+      local t2 = tt * tt
+      local t3 = t2 * tt
+      return (2 * t3 - 3 * t2 + 1) * y1 + (t3 - 2 * t2 + tt) * m1 + (-2 * t3 + 3 * t2) * y2 + (t3 - t2) * m2
+    end
+    for half, hd in pairs(ctx.debug) do
+      if type(hd) ~= "table" or hd.strips == nil then
+        continue
+      end
+      local gh, sp = hd.gh, hd.spacing
+      local texes = { texOf(hd.vals) }
+      if hd.pks ~= nil then
+        texes[2] = texOf(hd.pks)
+      end
+      local px = 1 / hd.ppu
+      local hw = lw / 2 + 1.42 * px -- line half width plus anti-aliasing
+      local list = tiles[half] or {}
+      -- Every tile's window must hold every sample its pixels read.
+      for _, d in ipairs(list) do
+        for _, x in ipairs({ d.x0 - 2 * px, d.x1 + 2 * px }) do
+          local di = 3 + math.clamp(x, 0, hd.gw) / sp
+          if (d.kLo > 0 and math.floor(di) - 1 < d.kLo) or (d.kHi < nb + 2 and math.floor(di) + 2 > d.kHi) then
+            fail(string.format("%s: x=%.2f (index %.2f) outside window %d..%d", half, x, di, d.kLo, d.kHi))
+            break
+          end
+        end
+      end
+      -- Every pixel the shader can paint must lie in a tile: sample x across
+      -- the half and check the tiles over x cover the curve's line (and fill).
+      local bad = nil
+      local SAMPLES = 40
+      table.sort(list, function(u, v)
+        return u.ly < v.ly
+      end)
+      for j = 0, SAMPLES do
+        local x = hd.gw * j / SAMPLES
+        local spans = {}
+        for _, d in ipairs(list) do
+          if x >= d.x0 - 0.001 and x <= d.x1 + 0.001 then
+            table.insert(spans, { d.ly, d.ly + d.th })
+          end
+        end
+        -- The curve within the shader's 2 px reach of x.
+        for _, dx in ipairs({ -2 * px, 0, 2 * px }) do
+          local di = 3 + math.clamp(x + dx, 0, hd.gw) / sp
+          for _, tex in ipairs(texes) do
+            local y = (1 - curveAt(tex, di)) * gh
+            local need0, need1 = y - hw, y + hw
+            if hd.filled then
+              need1 = gh
+            end
+            need0, need1 = math.max(0, need0), math.min(gh, need1)
+            if need1 > need0 + 0.01 then
+              local at = need0
+              for _, sp2 in ipairs(spans) do
+                if sp2[1] <= at + 0.01 and sp2[2] > at then
+                  at = sp2[2]
+                end
+              end
+              if at < need1 - 0.01 then
+                bad = string.format("x=%.2f needs y %.2f..%.2f, covered to %.2f", x, need0, need1, at)
+                break
+              end
+            end
+          end
+          if bad then
+            break
+          end
+        end
+        if bad then
+          break
+        end
+      end
+      if bad then
+        fail(string.format("%s: %s", half, bad))
       end
     end
   end
@@ -759,11 +934,67 @@ end
 -- demo signal): tree building per frame, and the host's render() of it.
 -- `payload` is "<shape> [bands] [glow] [px per unit]".
 function M.bench(payload: string?, renderFn)
+  if payload == "calibrate" then
+    -- Host metering cost: an empty loop iteration, a Luau call, a 4x-unrolled
+    -- loop body, and a C builtin call that is not a fastcall.
+    local N = 2000
+    local function f() end
+    local c0 = os.clock()
+    for _ = 1, N do
+    end
+    local loopUs = (os.clock() - c0) * 1e6 / N
+    c0 = os.clock()
+    for _ = 1, N do
+      f()
+    end
+    local callUs = (os.clock() - c0) * 1e6 / N - loopUs
+    local t = table.create(N, 0.5)
+    c0 = os.clock()
+    local acc = 0
+    for i = 1, N do
+      acc += t[i] * 2 + 1
+    end
+    local bodyUs = (os.clock() - c0) * 1e6 / N
+    c0 = os.clock()
+    for i = 1, N, 4 do
+      acc += t[i] * 2 + 1
+      acc += t[i + 1] * 2 + 1
+      acc += t[i + 2] * 2 + 1
+      acc += t[i + 3] * 2 + 1
+    end
+    local unrolledUs = (os.clock() - c0) * 1e6 / N
+    c0 = os.clock()
+    for _ = 1, N do
+      local _ = table.create(4)
+    end
+    local cCallUs = (os.clock() - c0) * 1e6 / N - loopUs
+    noctalia.log(string.format(
+      "spectra calibrate: loop %.3f us/iter, Luau call %.3f us, body %.3f us/elem, unrolled x4 %.3f us/elem, table.create %.3f us",
+      loopUs, callUs, bodyUs, unrolledUs, cCallUs
+    ))
+    return
+  end
   local parts = string.split(payload or "", " ")
   local shape = parts[1] or "bars"
   local bands = tonumber(parts[2]) or 64
   local glow = tonumber(parts[3]) or 0
+  -- Extra settings as key=value words after the px / unit, e.g.
+  -- "wave 128 0 7.2 color_mode=level show_peaks=true view=711.11x200".
+  local extra = {}
+  local view = nil
+  for i = 5, #parts do
+    local k, v = string.match(parts[i], "^([%w_]+)=(.+)$")
+    if k == "view" then
+      local vw, vh = string.match(v, "^([%d.]+)x([%d.]+)$")
+      view = { tonumber(vw), tonumber(vh) }
+    elseif k ~= nil then
+      extra[k] = if v == "true" then true elseif v == "false" then false else (tonumber(v) or v)
+    end
+  end
   local c = Engine.readConfig(BASE, function(key)
+    if extra[key] ~= nil then
+      return extra[key]
+    end
     if key == "shape" then
       return shape
     elseif key == "audio_spectrum_bands" then
@@ -785,20 +1016,56 @@ function M.bench(payload: string?, renderFn)
   else
     e:setGeometry(600, 200, false)
   end
+  if view ~= nil then
+    e:setViewport(view[1], view[2])
+  end
   local t = noctalia.nowMs()
   e:advance(t, nil, true)
-  local frames = 5
+  local frames = 3
   local c0 = os.clock()
-  local tree
+  local tree = e.lastTree
   for f = 1, frames do
     t += 16
     tree = e:advance(t, nil, true) or tree
   end
   local buildMs = (os.clock() - c0) * 1000 / frames
+  -- Breakdown: synthetic signal, DSP step, shape only, shape + compose.
+  local raw = Dsp.demo(48, 1.3)
+  local c1 = os.clock()
+  for _ = 1, frames do
+    Dsp.demo(48, 1.3, raw)
+  end
+  local demoMs = (os.clock() - c1) * 1000 / frames
+  -- The DSP as fed in production: a split cava line, one field per band.
+  local na = e.dsp.na
+  local line = Dsp.demo(na, 1.7)
+  for i = 1, na do
+    line[i] = tostring(math.floor(line[i] * 1000))
+  end
+  local cavaLine = table.concat(line, ";") .. ";"
+  c1 = os.clock()
+  for _ = 1, frames do
+    local parts = string.split(cavaLine, ";")
+    parts[#parts] = nil
+    e.dsp:step(parts, 16, 0.001)
+  end
+  local dspMs = (os.clock() - c1) * 1000 / frames
+  c1 = os.clock()
+  for _ = 1, frames do
+    e:render(1.3, true)
+  end
+  local renderLuaMs = (os.clock() - c1) * 1000 / frames
+  local ctx = e.ctx
+  c1 = os.clock()
+  for _ = 1, frames do
+    ctx.out = {}
+    Shapes[e:shape()](ctx)
+  end
+  local shapeMs = (os.clock() - c1) * 1000 / frames
   local nodes = 0
   local function count(n)
     nodes += 1
-    for _, ch in ipairs(n.children) do
+    for _, ch in ipairs(n.children or {}) do
       count(ch)
     end
   end
@@ -808,13 +1075,15 @@ function M.bench(payload: string?, renderFn)
   local renderMs = (os.clock() - c1) * 1000
   noctalia.log(
     string.format(
-      "spectra bench %-12s bands=%d glow=%d nodes=%4d build=%.2fms render=%.2fms",
-      shape,
-      bands,
-      glow,
+      "spectra bench [%s] nodes=%4d build=%.2fms render=%.2fms | demo=%.2f dsp=%.2f shape=%.2f compose=%.2f",
+      payload or "",
       nodes,
       buildMs,
-      renderMs
+      renderMs,
+      demoMs,
+      dspMs,
+      shapeMs,
+      renderLuaMs - shapeMs
     )
   )
 end

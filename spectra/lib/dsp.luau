@@ -114,15 +114,10 @@ function M.new()
   self.layout = "low_high"
   self.shaped = {}
   self.target = {}
-  self.spectrum = {}
-  self.peakLevel = {}
-  self.peakHold = {}
-  self.peakVel = {}
-  self.values = {}
-  self.peaks = {}
   self.silentMs = 0
   self.idle = false
   self.energy = 0
+  self.isSettled = true
   self:configure({})
   return self
 end
@@ -141,36 +136,29 @@ function M:configure(o)
   self.minLevel = math.clamp(o.minLevel or 0, 0, 1)
   local n = math.max(1, math.floor(o.count or self.n or 1))
   local layout = o.layout or self.layout
-  if n ~= self.n or layout ~= self.layout then
+  if n ~= self.n or layout ~= self.layout or self.spectrum == nil then
     self.n = n
     self.layout = layout
-    self.na = M.analysisCount(n, layout)
-    for _, t in ipairs({ self.target, self.spectrum, self.peakLevel, self.peakHold, self.peakVel }) do
-      table.clear(t)
-      for i = 1, self.na do
-        t[i] = 0
-      end
+    local na = M.analysisCount(n, layout)
+    self.na = na
+    self.target = table.create(na, 0)
+    self.spectrum = table.create(na, 0)
+    self.peakLevel = table.create(na, 0)
+    self.peakHold = table.create(na, 0)
+    self.peakVel = table.create(na, 0)
+    if layout == "low_high" and na == n then
+      -- Display order is the analysis order: share the arrays (no copy).
+      self.values, self.peaks = self.spectrum, self.peakLevel
+    else
+      self.values, self.peaks = table.create(n, 0), table.create(n, 0)
     end
-    table.clear(self.values)
-    table.clear(self.peaks)
-    for i = 1, n do
-      self.values[i] = 0
-      self.peaks[i] = 0
-    end
+    self.isSettled = true
   end
 end
 
--- Track silence on the real source (nil = no signal). Drives `idle`, which
+-- Track silence from the real source's mean level. Drives `idle`, which
 -- stays meaningful while synthetic frames (demo / breathing) are drawn.
-function M:observe(raw, dtMs: number)
-  local energy = 0
-  if raw ~= nil then
-    local m = #raw
-    for i = 1, m do
-      energy += raw[i] or 0
-    end
-    energy = if m > 0 then energy / m else 0
-  end
+function M:observeEnergy(energy: number, dtMs: number)
   self.energy = energy
   if energy < 0.003 then
     self.silentMs += math.max(0, dtMs)
@@ -180,20 +168,57 @@ function M:observe(raw, dtMs: number)
   self.idle = self.silentMs >= self.idleDelayMs
 end
 
--- Advance one frame. `raw` is the spectrum to draw (array 0..1, low -> high)
--- or nil for silence. `dtMs` is the time since the previous step.
-function M:step(raw, dtMs: number)
-  dtMs = math.clamp(dtMs or 16, 0, 250)
-  local shaped = self.shaped
-  table.clear(shaped)
+-- observeEnergy() for a raw frame (nil = no signal) that step() won't see.
+function M:observe(raw, dtMs: number, scale: number?)
+  local energy = 0
   if raw ~= nil then
     local m = #raw
-    local gain, floor, curve, tilt = self.gain, self.floor, self.curve, self.tilt
-    local invFloor = 1 / (1 - floor)
     for i = 1, m do
-      local r = raw[i] or 0
-      local f = if m > 1 then (i - 1) / (m - 1) else 0.5
-      local w = 1 + tilt * (f * 2 - 1)
+      energy += tonumber(raw[i]) or 0
+    end
+    energy = if m > 0 then energy * (scale or 1) / m else 0
+  end
+  self:observeEnergy(energy, dtMs)
+end
+
+-- Advance one frame. `raw` is the spectrum to draw (low -> high frequency),
+-- as numbers or numeric strings (a split host / cava line), each times
+-- `scale` (default 1) in 0..1; nil means silence. `dtMs` is the time since
+-- the previous step. Returns the raw frame's mean level (for observeEnergy).
+--
+-- Noctalia meters every loop iteration and call against the callback's CPU
+-- budget (a clock_gettime each), so the common case - one source band per
+-- analysis band, no neighbour spread - runs as a single fused loop: parse,
+-- shape, smooth, peaks and the settled check per band.
+function M:step(raw, dtMs: number, scale: number?): number
+  dtMs = math.clamp(dtMs or 16, 0, 250)
+  scale = scale or 1
+  local na = self.na
+  local gain, floor, curve, tilt = self.gain, self.floor, self.curve, self.tilt
+  local invFloor = 1 / (1 - floor)
+  local aUp = if self.attackMs <= 0 then 1 else 1 - math.exp(-dtMs / self.attackMs)
+  local aDown = if self.releaseMs <= 0 then 1 else 1 - math.exp(-dtMs / self.releaseMs)
+  local spectrum, pk, hold, vel = self.spectrum, self.peakLevel, self.peakHold, self.peakVel
+  local dt = dtMs / 1000
+  local gdt = self.gravity * dt
+  local holdMs = self.holdMs
+  local settled = true
+  local energy = 0
+  local m = if raw ~= nil then #raw else 0
+  -- Silence needs no shaping (every target is 0) and nothing to spread.
+  local fused = raw == nil or (m == na and self.spread <= 0)
+  local target = nil
+  if not fused then
+    -- General path: shape every source band, resample, spread.
+    local shaped = self.shaped
+    table.clear(shaped)
+    -- Tilt weight 1 + tilt * (2f - 1) for f = 0 (bass) .. 1 (treble).
+    local w0 = if m > 1 then 1 - tilt else 1
+    local tStep = if m > 1 then 2 * tilt / (m - 1) else 0
+    for i = 1, m do
+      local r = (tonumber(raw[i]) or 0) * scale
+      energy += r
+      local w = w0 + (i - 1) * tStep
       local v = r * gain * (if w > 0 then w else 0)
       v = (v - floor) * invFloor
       if v <= 0 then
@@ -208,63 +233,288 @@ function M:step(raw, dtMs: number)
       end
       shaped[i] = v
     end
-  end
-
-  local na = self.na
-  local target = M.resample(shaped, na, self.target)
-
-  -- Neighbour spread (a cheap monstercat-style filter): each band is lifted to
-  -- a decaying fraction of its neighbours.
-  local spread = self.spread
-  if spread > 0 and na > 1 then
-    for i = 2, na do
-      local v = target[i - 1] * spread
-      if v > target[i] then
-        target[i] = v
+    target = M.resample(shaped, na, self.target)
+    -- Neighbour spread (a cheap monstercat-style filter): each band is lifted
+    -- to a decaying fraction of its neighbours.
+    local spread = self.spread
+    if spread > 0 and na > 1 then
+      for i = 2, na do
+        local v = target[i - 1] * spread
+        if v > target[i] then
+          target[i] = v
+        end
       end
-    end
-    for i = na - 1, 1, -1 do
-      local v = target[i + 1] * spread
-      if v > target[i] then
-        target[i] = v
+      for i = na - 1, 1, -1 do
+        local v = target[i + 1] * spread
+        if v > target[i] then
+          target[i] = v
+        end
       end
     end
   end
-
-  local aUp = if self.attackMs <= 0 then 1 else 1 - math.exp(-dtMs / self.attackMs)
-  local aDown = if self.releaseMs <= 0 then 1 else 1 - math.exp(-dtMs / self.releaseMs)
-  local spectrum, pk, hold, vel = self.spectrum, self.peakLevel, self.peakHold, self.peakVel
-  local dt = dtMs / 1000
-  local g = self.gravity
-  for i = 1, na do
+  local w0 = if na > 1 then 1 - tilt else 1
+  local tStep = if na > 1 then 2 * tilt / (na - 1) else 0
+  -- Unrolled 4x: the host meters every loop back-edge (~0.4 us each), so
+  -- one iteration per band would cost more than the arithmetic. The four
+  -- blocks and the tail loop run the same per-band body.
+  local na4 = na - na % 4
+  for i0 = 0, na4 - 1, 4 do
+    do
+      local i = i0 + 1
+      local t
+      if fused then
+        local r = if raw ~= nil then (tonumber(raw[i]) or 0) * scale else 0
+        energy += r
+        local w = w0 + (i - 1) * tStep
+        t = r * gain * (if w > 0 then w else 0)
+        t = (t - floor) * invFloor
+        if t <= 0 then
+          t = 0
+        else
+          if t > 1 then
+            t = 1
+          end
+          if curve ~= 1 then
+            t = t ^ curve
+          end
+        end
+      else
+        t = target[i]
+      end
+      local cur = spectrum[i]
+      cur += (t - cur) * (if t > cur then aUp else aDown)
+      if cur < 0.0005 then
+        cur = 0
+      end
+      spectrum[i] = cur
+      local p = pk[i]
+      if cur >= p then
+        p = cur
+        hold[i] = holdMs
+        vel[i] = 0
+      elseif hold[i] > 0 then
+        hold[i] -= dtMs
+      else
+        local v = vel[i] + gdt
+        vel[i] = v
+        p -= v * dt
+        if p < cur then
+          p = cur
+        end
+      end
+      pk[i] = p
+      if cur > 0.001 or p > 0.001 then
+        settled = false
+      end
+    end
+    do
+      local i = i0 + 2
+      local t
+      if fused then
+        local r = if raw ~= nil then (tonumber(raw[i]) or 0) * scale else 0
+        energy += r
+        local w = w0 + (i - 1) * tStep
+        t = r * gain * (if w > 0 then w else 0)
+        t = (t - floor) * invFloor
+        if t <= 0 then
+          t = 0
+        else
+          if t > 1 then
+            t = 1
+          end
+          if curve ~= 1 then
+            t = t ^ curve
+          end
+        end
+      else
+        t = target[i]
+      end
+      local cur = spectrum[i]
+      cur += (t - cur) * (if t > cur then aUp else aDown)
+      if cur < 0.0005 then
+        cur = 0
+      end
+      spectrum[i] = cur
+      local p = pk[i]
+      if cur >= p then
+        p = cur
+        hold[i] = holdMs
+        vel[i] = 0
+      elseif hold[i] > 0 then
+        hold[i] -= dtMs
+      else
+        local v = vel[i] + gdt
+        vel[i] = v
+        p -= v * dt
+        if p < cur then
+          p = cur
+        end
+      end
+      pk[i] = p
+      if cur > 0.001 or p > 0.001 then
+        settled = false
+      end
+    end
+    do
+      local i = i0 + 3
+      local t
+      if fused then
+        local r = if raw ~= nil then (tonumber(raw[i]) or 0) * scale else 0
+        energy += r
+        local w = w0 + (i - 1) * tStep
+        t = r * gain * (if w > 0 then w else 0)
+        t = (t - floor) * invFloor
+        if t <= 0 then
+          t = 0
+        else
+          if t > 1 then
+            t = 1
+          end
+          if curve ~= 1 then
+            t = t ^ curve
+          end
+        end
+      else
+        t = target[i]
+      end
+      local cur = spectrum[i]
+      cur += (t - cur) * (if t > cur then aUp else aDown)
+      if cur < 0.0005 then
+        cur = 0
+      end
+      spectrum[i] = cur
+      local p = pk[i]
+      if cur >= p then
+        p = cur
+        hold[i] = holdMs
+        vel[i] = 0
+      elseif hold[i] > 0 then
+        hold[i] -= dtMs
+      else
+        local v = vel[i] + gdt
+        vel[i] = v
+        p -= v * dt
+        if p < cur then
+          p = cur
+        end
+      end
+      pk[i] = p
+      if cur > 0.001 or p > 0.001 then
+        settled = false
+      end
+    end
+    do
+      local i = i0 + 4
+      local t
+      if fused then
+        local r = if raw ~= nil then (tonumber(raw[i]) or 0) * scale else 0
+        energy += r
+        local w = w0 + (i - 1) * tStep
+        t = r * gain * (if w > 0 then w else 0)
+        t = (t - floor) * invFloor
+        if t <= 0 then
+          t = 0
+        else
+          if t > 1 then
+            t = 1
+          end
+          if curve ~= 1 then
+            t = t ^ curve
+          end
+        end
+      else
+        t = target[i]
+      end
+      local cur = spectrum[i]
+      cur += (t - cur) * (if t > cur then aUp else aDown)
+      if cur < 0.0005 then
+        cur = 0
+      end
+      spectrum[i] = cur
+      local p = pk[i]
+      if cur >= p then
+        p = cur
+        hold[i] = holdMs
+        vel[i] = 0
+      elseif hold[i] > 0 then
+        hold[i] -= dtMs
+      else
+        local v = vel[i] + gdt
+        vel[i] = v
+        p -= v * dt
+        if p < cur then
+          p = cur
+        end
+      end
+      pk[i] = p
+      if cur > 0.001 or p > 0.001 then
+        settled = false
+      end
+    end
+  end
+  for i = na4 + 1, na do
+    local t
+    if fused then
+      local r = if raw ~= nil then (tonumber(raw[i]) or 0) * scale else 0
+      energy += r
+      local w = w0 + (i - 1) * tStep
+      t = r * gain * (if w > 0 then w else 0)
+      t = (t - floor) * invFloor
+      if t <= 0 then
+        t = 0
+      else
+        if t > 1 then
+          t = 1
+        end
+        if curve ~= 1 then
+          t = t ^ curve
+        end
+      end
+    else
+      t = target[i]
+    end
     local cur = spectrum[i]
-    local t = target[i]
     cur += (t - cur) * (if t > cur then aUp else aDown)
     if cur < 0.0005 then
       cur = 0
     end
     spectrum[i] = cur
-
-    if cur >= pk[i] then
-      pk[i] = cur
-      hold[i] = self.holdMs
+    local p = pk[i]
+    if cur >= p then
+      p = cur
+      hold[i] = holdMs
       vel[i] = 0
     elseif hold[i] > 0 then
       hold[i] -= dtMs
     else
-      vel[i] += g * dt
-      local p = pk[i] - vel[i] * dt
-      pk[i] = if p > cur then p else cur
+      local v = vel[i] + gdt
+      vel[i] = v
+      p -= v * dt
+      if p < cur then
+        p = cur
+      end
+    end
+    pk[i] = p
+    if cur > 0.001 or p > 0.001 then
+      settled = false
     end
   end
+  self.isSettled = settled
 
-  self:arrange()
+  if self.values ~= spectrum then
+    self:arrange()
+  end
+  return if m > 0 then energy / m else 0
 end
 
--- Map the analysis spectrum onto display order.
+-- Map the analysis spectrum onto display order (a no-op when they share
+-- arrays).
 function M:arrange()
   local n, na, layout = self.n, self.na, self.layout
   local spectrum, pk, values, peaks = self.spectrum, self.peakLevel, self.values, self.peaks
+  if values == spectrum then
+    return
+  end
   if layout == "high_low" then
     for i = 1, n do
       local j = na - i + 1
@@ -294,21 +544,15 @@ function M:arrange()
       peaks[i] = pk[j]
     end
   else
-    for i = 1, n do
-      values[i] = spectrum[i]
-      peaks[i] = pk[i]
-    end
+    table.move(spectrum, 1, n, 1, values)
+    table.move(pk, 1, n, 1, peaks)
   end
 end
 
--- True once every element and peak has fallen to zero (nothing left to animate).
+-- True once every element and peak has fallen to zero (nothing left to
+-- animate), as of the last step().
 function M:settled(): boolean
-  for i = 1, self.na do
-    if self.spectrum[i] > 0.001 or self.peakLevel[i] > 0.001 then
-      return false
-    end
-  end
-  return true
+  return self.isSettled
 end
 
 -- ── Synthetic signals ────────────────────────────────────────────────────────

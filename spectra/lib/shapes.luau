@@ -1562,8 +1562,10 @@ local function curveShape(ctx, fillOpacity)
         -- never change.
         local kLo, kHi = 0, n + 2
         local wv, wp = vals, pks
-        local ly = (if r < rows then gh - r * sh else 0) + inset
-        local th = (if r < rows then sh else gh - (rows - 1) * sh) - 2 * inset
+        -- Only edges shared with another row are inset.
+        local top = if r < rows then gh - r * sh + inset else 0
+        local bottom = if r > 1 then gh - (r - 1) * sh - inset else gh
+        local ly, th = top, bottom - top
         local lcx, lcy = x0 + tw / 2, ly + th / 2
         local cx, cy
         if flipped then
@@ -1688,8 +1690,9 @@ local function curveShape(ctx, fillOpacity)
       end
       local gx = kLo * spacing -- graph left edge, half-local
       local gwide = (kHi - kLo - 2) * spacing
-      local lx = (k - 1) * sw + inset
-      local tw = (if k < strips then sw else gw - (k - 1) * sw) - 2 * inset
+      -- Only edges shared with another strip are inset.
+      local lx = if k > 1 then (k - 1) * sw + inset else 0
+      local tw = (if k < strips then k * sw - inset else gw) - lx
       local r1, r2 = 1, 1
       if byLevel then
         r1 = math.clamp(floor(lo * rows) + 1, 1, rows)

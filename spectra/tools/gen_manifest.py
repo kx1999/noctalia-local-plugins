@@ -17,7 +17,7 @@ import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 SHAPES = [
     ("bars", "Bars"),
@@ -236,6 +236,10 @@ SETTINGS = [
                      "Needs a compositor Noctalia can watch (Umbriel, niri, Hyprland)."),
 
     # ── Audio source ─────────────────────────────────────────────────────
+    dict(key="audio_capture", type="select", default="player", label="Audio from",
+         description="Active media player: only the audio of the player Noctalia shows (games, calls and "
+                     "notifications are ignored; needs cava and PipeWire). System: everything you hear.",
+         options=[("player", "Active media player"), ("system", "All system audio")]),
     dict(key="audio_spectrum", type="bool", default=True, scope="bar", label="Capture audio", advanced=True,
          description="Subscribe to Noctalia's PipeWire spectrum. Turning it off leaves the widget idle."),
     dict(key="cava_path", type="file", default="cava", scope="desktop", label="cava executable", advanced=True,
@@ -287,7 +291,7 @@ DESKTOP_PAGE = {
     "spread": "response", "attack_ms": "response", "release_ms": "response",
     "idle_mode": "silence", "idle_opacity": "silence", "idle_delay_ms": "silence", "max_fps": "silence",
     "mpris_only": "silence", "pause_fullscreen": "silence",
-    "cava_path": "audio", "cava_method": "audio", "audio_source": "audio", "cava_noise_reduction": "audio",
+    "audio_capture": "audio", "cava_path": "audio", "cava_method": "audio", "audio_source": "audio", "cava_noise_reduction": "audio",
     "cava_autosens": "audio", "low_cutoff": "audio", "high_cutoff": "audio",
 }
 

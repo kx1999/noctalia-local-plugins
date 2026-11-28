@@ -402,7 +402,9 @@ function M.run(case)
         local x = hd.gw * j / SAMPLES
         local spans = {}
         for _, d in ipairs(list) do
-          if x >= d.x0 - 0.001 and x <= d.x1 + 0.001 then
+          -- Shared tile edges are inset by 0.02 px (the host's outward
+          -- clip rounding covers that sliver), so allow 0.01 units.
+          if x >= d.x0 - 0.01 and x <= d.x1 + 0.01 then
             table.insert(spans, { d.ly, d.ly + d.th })
           end
         end
@@ -550,7 +552,14 @@ function M.entryTests(log)
           end,
           clearTooltip = function() end,
         }
-        local cfg = { shape = shape, audio_spectrum_bands = 24, length = 140, thickness = 20, audio_spectrum = true }
+        local cfg = {
+          shape = shape,
+          audio_spectrum_bands = 24,
+          length = 140,
+          thickness = 20,
+          audio_spectrum = true,
+          audio_capture = "system",
+        }
         local entry = BarEntry.new(widget, {
           subscribe = noSubscribe,
           nowMs = function()
@@ -603,7 +612,12 @@ function M.entryTests(log)
         clock = 1000
         renders, lastTree = 0, nil
         local onLine, command, written = nil, nil, nil
-        local dcfg = { shape = shape, audio_spectrum_bands = 32, orientation = if vertical then "vertical" else "horizontal" }
+        local dcfg = {
+          shape = shape,
+          audio_spectrum_bands = 32,
+          orientation = if vertical then "vertical" else "horizontal",
+          audio_capture = "system",
+        }
         local dw = {
           render = function(tree)
             renders += 1
@@ -819,6 +833,170 @@ function M.entryTests(log)
       fail("desktop cava-missing", "no message rendered")
     end
 
+    -- Player capture (the default): capture.sh follows the active MPRIS
+    -- player through a control file and relays cava's frames plus '#' status
+    -- lines. Desktop first, then the bar (which then ignores the shell's
+    -- spectrum).
+    for _, kind in ipairs({ "desktop", "bar" }) do
+      runs += 1
+      local name = kind .. " player capture"
+      local clock = 1000
+      local renders = 0
+      local streams = {} -- { cmd, cb } per runStream call
+      local files = {}
+      local player = { busName = "org.mpris.MediaPlayer2.first", status = "Playing" }
+      local overrides = {
+        subscribe = noSubscribe,
+        nowMs = function()
+          return clock
+        end,
+        setUpdateInterval = function() end,
+        log = function() end,
+        tr = function(k)
+          return k
+        end,
+        config = function(k)
+          return ({ shape = "bars", audio_spectrum_bands = 32 })[k]
+        end,
+        runStream = function(cmd, cb)
+          table.insert(streams, { cmd = cmd, cb = cb })
+          return true
+        end,
+        commandExists = function()
+          return true
+        end,
+        pluginDataDir = function()
+          return "/nonexistent-spectra-test"
+        end,
+        pluginDir = function()
+          return "/plugin"
+        end,
+        readFile = function(path)
+          return files[path]
+        end,
+        writeFile = function(path, text)
+          files[path] = text
+          return true
+        end,
+        mediaPlayer = function()
+          return player
+        end,
+        getSetting = fakeSettings({}),
+      }
+      local widget = {
+        isVertical = function()
+          return false
+        end,
+        render = function()
+          renders += 1
+        end,
+        setVisible = function() end,
+        clearTooltip = function() end,
+      }
+      local entry = if kind == "desktop" then DesktopEntry.new(widget, overrides) else BarEntry.new(widget, overrides)
+      entry.start()
+      local cap = entry.capture
+      local first = streams[1]
+      local ctl = nil
+      local conf = nil
+      if cap == nil or first == nil then
+        fail(name, "no capture started")
+      else
+        ctl = string.match(first.cmd, "capture%.sh' '([^']+)'")
+        conf = string.match(first.cmd, "' '[^']+' '[^']+' '([^']+)'$")
+        if not string.find(first.cmd, "exec bash '/plugin/lib/capture.sh' '", 1, true) or ctl == nil or conf == nil then
+          fail(name, "unexpected command " .. first.cmd)
+        elseif files[ctl] ~= "org.mpris.MediaPlayer2.first\n" then
+          fail(name, "control file holds " .. tostring(files[ctl]))
+        elseif
+          files[conf] == nil
+          or not string.find(files[conf], "method = pipewire", 1, true)
+          or not string.find(files[conf], "source = auto", 1, true)
+          or not string.find(files[conf], "bars = 32", 1, true)
+        then
+          fail(name, "cava config: " .. tostring(files[conf]))
+        end
+      end
+      if cap ~= nil and first ~= nil and ctl ~= nil then
+        local line = first.cb
+        -- The bar ignores the shell's spectrum in player mode.
+        if kind == "bar" then
+          local before = renders
+          for _ = 1, 6 do
+            clock += 16.7
+            entry.onAudioSpectrum(csvFrame(32, clock / 1000, ",", 1, "%.4f"), "1,1")
+          end
+          if renders ~= before then
+            fail(name, "drew the shell's spectrum in player mode")
+          end
+        end
+        line("#alive")
+        line("#target 4242 org.mpris.MediaPlayer2.first")
+        if cap.target ~= "4242" then
+          fail(name, "target not recorded: " .. tostring(cap.target))
+        end
+        local before = renders
+        for _ = 1, 12 do
+          clock += 16.7
+          line(csvFrame(32, clock / 1000, ";", 1000, "%.0f") .. ";")
+        end
+        if renders - before < 2 then
+          fail(name, "rendered " .. (renders - before) .. " frames from the player's audio")
+        end
+        if not cap.update(clock) then
+          fail(name, "not fed while the player's frames arrive")
+        end
+        -- Another player becomes active, then none.
+        player = { busName = "org.mpris.MediaPlayer2.second", status = "Playing" }
+        clock += 400
+        entry.update()
+        if files[ctl] ~= "org.mpris.MediaPlayer2.second\n" then
+          fail(name, "did not follow the new player: " .. tostring(files[ctl]))
+        end
+        player = nil
+        clock += 400
+        entry.update()
+        if files[ctl] ~= "\n" then
+          fail(name, "did not clear the player: " .. tostring(files[ctl]))
+        end
+        -- No stream: silence decays to idle from the timer; heartbeats
+        -- keep the supervisor alive.
+        line("#none")
+        if cap.target ~= nil then
+          fail(name, "target kept after #none")
+        end
+        for f = 1, 200 do
+          clock += 33
+          if f % 100 == 0 then
+            line("#alive")
+          end
+          entry.update()
+        end
+        if not entry.engine.dsp.idle then
+          fail(name, "not idle without a player stream")
+        end
+        if #streams ~= 1 then
+          fail(name, "restarted a live supervisor (" .. #streams .. " streams)")
+        end
+        -- A dead supervisor (no heartbeat) is restarted, with a fresh
+        -- control file holding the current player.
+        player = { busName = "org.mpris.MediaPlayer2.third", status = "Playing" }
+        for _ = 1, 450 do
+          clock += 33
+          entry.update()
+        end
+        if #streams < 2 then
+          fail(name, "dead supervisor not restarted")
+        else
+          local ctl2 = string.match(streams[2].cmd, "capture%.sh' '([^']+)'")
+          if ctl2 == nil or ctl2 == ctl or files[ctl2] ~= "org.mpris.MediaPlayer2.third\n" then
+            fail(name, "restart control file " .. tostring(ctl2) .. " = " .. tostring(ctl2 and files[ctl2]))
+          end
+        end
+      end
+      coroutine.yield()
+    end
+
     -- Pause while fullscreen: compositor window snapshots hide the bar widget
     -- only for a visible fullscreen window on its own output.
     runs += 1
@@ -847,7 +1025,7 @@ function M.entryTests(log)
         setUpdateInterval = function() end,
         log = function() end,
         config = function(k)
-          return ({ shape = "bars", audio_spectrum_bands = 24 })[k]
+          return ({ shape = "bars", audio_spectrum_bands = 24, audio_capture = "system" })[k]
         end,
         subscribe = function(options, cb)
           subscribedEvents = options.events
@@ -912,7 +1090,10 @@ function M.entryTests(log)
         setUpdateInterval = function() end,
         log = function() end,
         config = function(k)
-          return ({ pause_fullscreen = false })[k]
+          return ({ pause_fullscreen = false, audio_capture = "system" })[k]
+        end,
+        runStream = function()
+          return true
         end,
         subscribe = function()
           subscribed = true

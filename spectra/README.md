@@ -7,12 +7,14 @@ theme and wallpaper.
 
 | Entry | ID | Audio source |
 | --- | --- | --- |
-| Bar widget | `kylex/spectra:bar` | Noctalia's PipeWire spectrum (built in, nothing to install) |
-| Desktop / lock-screen widget | `kylex/spectra:desktop` | `cava` (one process per placed widget) |
+| Bar widget | `kylex/spectra:bar` | The active media player through `cava` (default), or Noctalia's PipeWire spectrum |
+| Desktop / lock-screen widget | `kylex/spectra:desktop` | The active media player (default) or all system audio, through `cava` (one per placed widget) |
 | Shape gallery (panel) | `kylex/spectra:gallery` | Built-in demo signal |
 
-Requirements: Noctalia 5.6+ (plugin API 55). The desktop widget also needs
-`cava` (`pacman -S cava`).
+Requirements: Noctalia 5.6+ (plugin API 55) and `cava` (`pacman -S cava`).
+Following only the active media player (the default) also uses `bash`,
+`busctl` (systemd) and `pactl` (pipewire-pulse); the bar widget needs none of
+these with **Audio from: All system audio**.
 
 ## Shapes
 
@@ -100,7 +102,7 @@ and a lock-screen widget can each look different.
 | Shape-specific | LED segments and gap, text rows and font, spectrogram history and scroll rate, ring count, radial direction / inner radius / arc / rotation / spin, spiral turns, line width, fill opacity |
 | Dynamics | sensitivity, noise floor, response curve, treble tilt, neighbour spread, rise and fall smoothing (ms) |
 | Behaviour | when silent (keep, fade, hide, breathe), silent opacity, silence delay, max frame rate, only while media plays, pause while fullscreen |
-| Audio (desktop) | cava path, input (PipeWire / Pulse), source, cava smoothing, auto sensitivity, frequency range |
+| Audio | audio from (active media player / all system audio) · desktop: cava path, input (PipeWire / Pulse), source, cava smoothing, auto sensitivity, frequency range |
 
 Colors accept a palette role (`primary`, `tertiary`, `secondary_container`, …)
 or a custom hex value. Roles are re-resolved every second, so automatic
@@ -122,6 +124,29 @@ noctalia msg plugin $W all demo            # toggle a synthetic test signal (dem
 noctalia msg plugin $W all reset           # back to the saved settings
 noctalia msg plugin $W all info            # log shape / bands / idle state
 ```
+
+## Audio from the active media player
+
+By default (**Audio from: Active media player**) Spectra shows only the
+audio of the player Noctalia itself shows as active (the bar media widget's
+choice, honouring `shell.mpris.blacklist`). Games, calls, notifications and
+other apps don't move it. With no player, or a player that isn't playing
+audio, the visualizer settles into its silent state. **All system audio**
+restores the old behaviour: everything you hear (the bar then uses Noctalia's
+built-in spectrum again).
+
+How it works: `lib/capture.sh` runs for the widget's lifetime. It asks D-Bus
+for the player's process (`GetConnectionUnixProcessID`) and picks the
+PipeWire playback stream whose process is that process or one of its children
+(browsers and Electron apps play from a child process), preferring one that is
+playing. It then runs cava on that stream alone (cava's `source` = the stream's
+`object.serial`). The plugin writes the active player's D-Bus name to a small
+control file whenever it changes. The script re-resolves only when that file
+changes, when `pactl subscribe` reports a playback stream appearing or
+disappearing, or when cava exits; otherwise it just waits (about 0.05% of a
+core). Noctalia stops the whole process group, and the script removes its files,
+when the widget goes away. It needs `bash`, `busctl`, `pactl` and `cava` with
+PipeWire input.
 
 ## Performance
 

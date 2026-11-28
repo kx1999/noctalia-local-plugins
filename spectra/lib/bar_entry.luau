@@ -7,6 +7,7 @@
 
 local Engine = require("./engine.luau")
 local Fullscreen = require("./fullscreen.luau")
+local Capture = require("./capture.luau")
 
 local M = {}
 
@@ -29,11 +30,24 @@ M.DEFAULTS = {
 
 function M.new(widget, overrides)
   local o = overrides or {}
-  local host = {
-    nowMs = o.nowMs or noctalia.nowMs,
-    setUpdateInterval = o.setUpdateInterval or noctalia.setUpdateInterval,
-    log = o.log or noctalia.log,
-  }
+  local host = {}
+  for _, name in ipairs({
+    "nowMs",
+    "setUpdateInterval",
+    "log",
+    "tr",
+    "runStream",
+    "commandExists",
+    "fileExists",
+    "expandPath",
+    "pluginDataDir",
+    "pluginDir",
+    "readFile",
+    "writeFile",
+    "mediaPlayer",
+  }) do
+    host[name] = o[name] or noctalia[name]
+  end
   local config = o.config or function(key)
     return noctalia.getConfig(key)
   end
@@ -42,6 +56,10 @@ function M.new(widget, overrides)
   local captureOn = config("audio_spectrum") ~= false
   local length = math.max(8, tonumber(config("length")) or 140)
   local thickness = math.max(4, tonumber(config("thickness")) or 20)
+  -- "player" (default): only the active MPRIS player, through cava (the
+  -- shell's spectrum always follows the default output); "system": the
+  -- shell's spectrum.
+  local captureMode = if config("audio_capture") == "system" then "system" else "player"
 
   local engine = Engine.new(c)
   local shownVisible = true
@@ -81,8 +99,9 @@ function M.new(widget, overrides)
     if tree ~= nil then
       widget.render(tree)
     end
-    -- Tick fast only while something is still moving (decay, fades, demo).
-    setInterval(if engine.animating then 33 else 500)
+    -- Tick fast only while something is still moving (decay, fades, demo);
+    -- player mode also follows the active player from the timer.
+    setInterval(if engine.animating then 33 elseif capture ~= nil then 300 else 500)
   end
 
   -- Split only: the DSP parses each field in its own loop (Noctalia meters
@@ -96,9 +115,58 @@ function M.new(widget, overrides)
     return parts
   end
 
+  -- Player mode: cava frames ("123;456;...;", 0..1000) and capture.sh
+  -- status lines ('#').
+  local capture = nil
+  function self.onLine(line: string)
+    local now = host.nowMs()
+    capture.lastLineMs = now
+    if string.byte(line, 1) == 35 then
+      capture.status(line)
+      return
+    end
+    lastSourceMs = now
+    if engine.paused then
+      return
+    end
+    local last = engine.lastStepMs
+    if last ~= nil and now - last < (1000 / c.maxFps) * 0.85 then
+      return
+    end
+    local raw = string.split(line, ";")
+    local m = #raw
+    if m > 0 and raw[m] == "" then
+      raw[m] = nil
+      m -= 1
+    end
+    if m == 0 then
+      return
+    end
+    applyGeometry()
+    present(engine:advance(now, raw, false, 0.001))
+  end
+  if captureMode == "player" then
+    capture = Capture.new({
+      host = host,
+      mode = "player",
+      count = c.count,
+      maxFps = c.maxFps,
+      cava = {},
+      onLine = self.onLine,
+      setMessage = function(text)
+        engine:setMessage(text)
+      end,
+      label = "spectra bar",
+    })
+    self.capture = capture
+  end
+
   -- Host spectrum frame: valuesCsv "0.1200,0.5000,..." (low -> high),
   -- stateCsv "<audio active>,<mpris playing>" as 0/1.
   function self.onAudioSpectrum(valuesCsv, stateCsv)
+    if capture ~= nil then
+      return -- player mode: cava feeds the widget
+    end
     local now = host.nowMs()
     lastSourceMs = now
     if engine.paused then
@@ -118,9 +186,24 @@ function M.new(widget, overrides)
     present(engine:advance(now, raw))
   end
 
+  local lastMprisMs = -1e9
   function self.update()
     local now = host.nowMs()
     applyGeometry()
+    if capture ~= nil then
+      if now - lastMprisMs >= 300 then
+        lastMprisMs = now
+        local player = host.mediaPlayer()
+        if c.mprisOnly then
+          engine.mprisBlocked = player == nil or player.status ~= "Playing"
+        end
+        capture.follow(player)
+      end
+      if not capture.update(now) then
+        present(engine:advance(now, nil))
+      end
+      return
+    end
     -- The spectrum stops sending frames when audio goes quiet; keep animating
     -- the decay / fade / demo from the timer until everything settles.
     if now - lastSourceMs > 120 then
@@ -169,6 +252,9 @@ function M.new(widget, overrides)
         onChange = self.setPaused,
         log = host.log,
       })
+    end
+    if capture ~= nil then
+      capture.start()
     end
     present(engine:advance(host.nowMs(), nil, true))
   end

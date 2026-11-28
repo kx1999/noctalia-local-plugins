@@ -9,7 +9,7 @@
 
 id = "kylex/spectra"
 name = "Spectra"
-version = "1.1.0"
+version = "1.2.0"
 plugin_api = 55
 author = "kylex"
 license = "MIT"
@@ -559,6 +559,14 @@ entry = "bar.luau"
   default = true
 
   [[widget.setting]]
+  key = "audio_capture"
+  type = "select"
+  label_key = "settings.audio_capture.label"
+  description_key = "settings.audio_capture.description"
+  default = "player"
+  options = [{ value = "player", label_key = "settings.audio_capture.options.player" }, { value = "system", label_key = "settings.audio_capture.options.system" }]
+
+  [[widget.setting]]
   key = "audio_spectrum"
   type = "bool"
   label_key = "settings.audio_spectrum.label"
@@ -992,6 +1000,15 @@ entry = "desktop.luau"
   description_key = "settings.pause_fullscreen.description"
   default = true
   visible_when = { key = "settings_page", values = ["silence"] }
+
+  [[desktop_widget.setting]]
+  key = "audio_capture"
+  type = "select"
+  label_key = "settings.audio_capture.label"
+  description_key = "settings.audio_capture.description"
+  default = "player"
+  options = [{ value = "player", label_key = "settings.audio_capture.options.player" }, { value = "system", label_key = "settings.audio_capture.options.system" }]
+  visible_when = { key = "settings_page", values = ["audio"] }
 
   [[desktop_widget.setting]]
   key = "cava_path"

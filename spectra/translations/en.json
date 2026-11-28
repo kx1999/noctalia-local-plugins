@@ -317,6 +317,14 @@
       "label": "Pause while fullscreen",
       "description": "Hide and stop drawing while a fullscreen window (a game, a video) covers this output. Needs a compositor Noctalia can watch (Umbriel, niri, Hyprland)."
     },
+    "audio_capture": {
+      "label": "Audio from",
+      "description": "Active media player: only the audio of the player Noctalia shows (games, calls and notifications are ignored; needs cava and PipeWire). System: everything you hear.",
+      "options": {
+        "player": "Active media player",
+        "system": "All system audio"
+      }
+    },
     "audio_spectrum": {
       "label": "Capture audio",
       "description": "Subscribe to Noctalia's PipeWire spectrum. Turning it off leaves the widget idle."

@@ -44,6 +44,7 @@ return {
   "max_fps",
   "mpris_only",
   "pause_fullscreen",
+  "audio_capture",
   "cava_path",
   "cava_method",
   "audio_source",
